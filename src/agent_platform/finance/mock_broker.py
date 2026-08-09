@@ -1,0 +1,317 @@
+"""
+MockBroker — 模拟撮合引擎
+==========================
+提供本地纸面交易（Paper Trading）环境，绝不连接真实券商。
+支持：限价单、市价单、撮合成交、持仓 / 盈亏统计。
+
+数量单位约定（全模块唯一口径）
+------------------------------
+本模块所有 ``quantity`` / ``filled_quantity`` / ``Position.quantity`` 字段
+**一律以「股」（shares）为单位**，不使用「手」。
+A 股 1 手 = 100 股（``SHARES_PER_LOT``）；若上层 UI 以“手”输入，
+必须先调用 :func:`lots_to_shares` 换算后再传入本模块。
+成交金额 = 成交价 × 股数，因此价格与数量单位严格匹配。
+
+⚠️  仅供研究参考，不构成投资建议。
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+DISCLAIMER = "仅供研究参考，不构成投资建议"
+
+#: A 股每手股数；本模块内部一律按「股」计价与记账
+SHARES_PER_LOT = 100
+
+#: 数量单位标识，供 API / 前端读取展示，避免“手/股”歧义
+QUANTITY_UNIT = "shares"
+
+
+def lots_to_shares(lots: int) -> int:
+    """手 → 股（1 手 = 100 股）。"""
+    if lots <= 0:
+        raise ValueError(f"lots 必须为正整数，收到 {lots}")
+    return int(lots) * SHARES_PER_LOT
+
+
+def shares_to_lots(shares: int) -> float:
+    """股 → 手（可能为小数，A 股零股不足 1 手）。"""
+    if shares < 0:
+        raise ValueError(f"shares 不能为负，收到 {shares}")
+    return shares / SHARES_PER_LOT
+
+
+class OrderSide(str, Enum):
+    BUY = "buy"
+    SELL = "sell"
+
+
+class OrderStatus(str, Enum):
+    PENDING = "pending"
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+    REJECTED = "rejected"
+
+
+class OrderType(str, Enum):
+    MARKET = "market"
+    LIMIT = "limit"
+
+
+@dataclass
+class Order:
+    order_id: str
+    symbol: str
+    side: OrderSide
+    order_type: OrderType
+    quantity: int
+    limit_price: Optional[float]
+    status: OrderStatus = OrderStatus.PENDING
+    filled_price: Optional[float] = None
+    filled_quantity: int = 0
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    filled_at: Optional[str] = None
+    reject_reason: Optional[str] = None
+
+
+@dataclass
+class Position:
+    symbol: str
+    quantity: int
+    avg_cost: float
+    current_price: float = 0.0
+
+    @property
+    def market_value(self) -> float:
+        return self.quantity * self.current_price
+
+    @property
+    def unrealized_pnl(self) -> float:
+        return (self.current_price - self.avg_cost) * self.quantity
+
+    @property
+    def unrealized_pnl_pct(self) -> float:
+        if self.avg_cost <= 0:
+            return 0.0
+        return (self.current_price / self.avg_cost - 1) * 100
+
+
+class MockBroker:
+    """
+    模拟经纪商 / 纸面交易撮合引擎。
+
+    Parameters
+    ----------
+    initial_cash : float
+        初始资金（人民币元），默认 100 万。
+    commission_pct : float
+        佣金率，默认 0.03%（双边）。
+    slippage_pct : float
+        滑点，默认 0.1%（单边）。
+    """
+
+    def __init__(
+        self,
+        initial_cash: float = 1_000_000.0,
+        commission_pct: float = 0.03,
+        slippage_pct: float = 0.1,
+    ) -> None:
+        self.initial_cash = initial_cash
+        self.cash = initial_cash
+        self.commission_pct = commission_pct / 100
+        self.slippage_pct = slippage_pct / 100
+
+        self._orders: dict[str, Order] = {}
+        self._positions: dict[str, Position] = {}
+        self._order_counter = 0
+        self._trade_history: list[dict] = []
+
+    # ── 下单 ─────────────────────────────────────────────────────────────────
+
+    def _new_order_id(self) -> str:
+        self._order_counter += 1
+        return f"ORD{self._order_counter:06d}"
+
+    def place_market_order(self, symbol: str, side: OrderSide, quantity: int) -> Order:
+        """提交市价单；立即以 0 价格暂挂（需调用 tick() 撮合）。
+
+        ``quantity`` 单位为「股」（shares），不是「手」。
+        """
+        if quantity <= 0:
+            raise ValueError(f"quantity 必须为正整数（单位：股），收到 {quantity}")
+        order = Order(
+            order_id=self._new_order_id(),
+            symbol=symbol,
+            side=side,
+            order_type=OrderType.MARKET,
+            quantity=quantity,
+            limit_price=None,
+        )
+        self._orders[order.order_id] = order
+        logger.debug("place_market_order: %s", order)
+        return order
+
+    def place_limit_order(
+        self, symbol: str, side: OrderSide, quantity: int, limit_price: float
+    ) -> Order:
+        """提交限价单；tick() 时若价格满足则撮合。
+
+        ``quantity`` 单位为「股」（shares），不是「手」。
+        """
+        if quantity <= 0:
+            raise ValueError(f"quantity 必须为正整数（单位：股），收到 {quantity}")
+        if limit_price <= 0:
+            raise ValueError(f"limit_price 必须为正，收到 {limit_price}")
+        order = Order(
+            order_id=self._new_order_id(),
+            symbol=symbol,
+            side=side,
+            order_type=OrderType.LIMIT,
+            quantity=quantity,
+            limit_price=limit_price,
+        )
+        self._orders[order.order_id] = order
+        logger.debug("place_limit_order: %s", order)
+        return order
+
+    # ── 撮合（Tick）─────────────────────────────────────────────────────────
+
+    def tick(self, symbol: str, market_price: float) -> list[Order]:
+        """
+        接受行情报价，撮合该标的所有挂单。
+        返回本次成交的订单列表。
+        """
+        if market_price <= 0:
+            raise ValueError(f"market_price 必须为正，收到 {market_price}")
+
+        # 更新持仓现价
+        if symbol in self._positions:
+            self._positions[symbol].current_price = market_price
+
+        filled: list[Order] = []
+        for order in list(self._orders.values()):
+            if order.symbol != symbol or order.status != OrderStatus.PENDING:
+                continue
+            self._try_fill(order, market_price)
+            if order.status == OrderStatus.FILLED:
+                filled.append(order)
+        return filled
+
+    def _try_fill(self, order: Order, market_price: float) -> None:
+        """尝试撮合单笔订单。"""
+        # 判断限价单是否满足条件
+        if order.order_type == OrderType.LIMIT:
+            if order.side == OrderSide.BUY and market_price > order.limit_price:  # type: ignore[operator]
+                return  # 市价高于买入限价，不成交
+            if order.side == OrderSide.SELL and market_price < order.limit_price:  # type: ignore[operator]
+                return  # 市价低于卖出限价，不成交
+
+        # 滑点
+        if order.side == OrderSide.BUY:
+            exec_price = market_price * (1 + self.slippage_pct)
+        else:
+            exec_price = market_price * (1 - self.slippage_pct)
+
+        # 成本 & 资金检查
+        trade_value = exec_price * order.quantity
+        commission = trade_value * self.commission_pct
+
+        if order.side == OrderSide.BUY:
+            total_cost = trade_value + commission
+            if total_cost > self.cash:
+                order.status = OrderStatus.REJECTED
+                order.reject_reason = f"资金不足：需 {total_cost:.2f} 元，可用 {self.cash:.2f} 元"
+                logger.warning("Order rejected (insufficient cash): %s", order.order_id)
+                return
+            self.cash -= total_cost
+            self._update_position_buy(order.symbol, order.quantity, exec_price)
+
+        else:  # SELL
+            pos = self._positions.get(order.symbol)
+            if pos is None or pos.quantity < order.quantity:
+                order.status = OrderStatus.REJECTED
+                order.reject_reason = f"持仓不足：需 {order.quantity} 股，持 {pos.quantity if pos else 0} 股"
+                logger.warning("Order rejected (insufficient position): %s", order.order_id)
+                return
+            self.cash += trade_value - commission
+            self._update_position_sell(order.symbol, order.quantity)
+
+        order.status = OrderStatus.FILLED
+        order.filled_price = exec_price
+        order.filled_quantity = order.quantity
+        order.filled_at = datetime.utcnow().isoformat() + "Z"
+
+        self._trade_history.append({
+            "order_id": order.order_id,
+            "symbol": order.symbol,
+            "side": order.side.value,
+            "quantity": order.quantity,
+            "quantity_unit": QUANTITY_UNIT,
+            "exec_price": exec_price,
+            "commission": commission,
+            "timestamp": order.filled_at,
+        })
+        logger.info("Order filled %s @ %.2f × %d", order.order_id, exec_price, order.quantity)
+
+    # ── 持仓维护 ─────────────────────────────────────────────────────────────
+
+    def _update_position_buy(self, symbol: str, qty: int, price: float) -> None:
+        if symbol in self._positions:
+            pos = self._positions[symbol]
+            total_cost = pos.avg_cost * pos.quantity + price * qty
+            pos.quantity += qty
+            pos.avg_cost = total_cost / pos.quantity
+            pos.current_price = price
+        else:
+            self._positions[symbol] = Position(
+                symbol=symbol, quantity=qty, avg_cost=price, current_price=price
+            )
+
+    def _update_position_sell(self, symbol: str, qty: int) -> None:
+        pos = self._positions[symbol]
+        pos.quantity -= qty
+        if pos.quantity == 0:
+            del self._positions[symbol]
+
+    # ── 查询接口 ─────────────────────────────────────────────────────────────
+
+    def cancel_order(self, order_id: str) -> bool:
+        order = self._orders.get(order_id)
+        if order and order.status == OrderStatus.PENDING:
+            order.status = OrderStatus.CANCELLED
+            return True
+        return False
+
+    def get_order(self, order_id: str) -> Optional[Order]:
+        return self._orders.get(order_id)
+
+    def get_positions(self) -> dict[str, Position]:
+        return dict(self._positions)
+
+    def portfolio_value(self) -> float:
+        """总资产 = 现金 + 持仓市值。"""
+        mkt = sum(p.market_value for p in self._positions.values())
+        return self.cash + mkt
+
+    def total_pnl(self) -> float:
+        return self.portfolio_value() - self.initial_cash
+
+    def total_pnl_pct(self) -> float:
+        return self.total_pnl() / self.initial_cash * 100
+
+    def summary(self) -> dict:
+        return {
+            "cash": round(self.cash, 2),
+            "portfolio_value": round(self.portfolio_value(), 2),
+            "total_pnl": round(self.total_pnl(), 2),
+            "total_pnl_pct": round(self.total_pnl_pct(), 4),
+            "open_positions": len(self._positions),
+            "total_trades": len(self._trade_history),
+            "disclaimer": DISCLAIMER,
+        }

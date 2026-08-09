@@ -1,0 +1,66 @@
+# 密钥文件（绝对不能提交到 Git）
+.env
+
+# 数据库
+*.sqlite3
+*.db
+# SQLite WAL / 共享内存旁文件：*.db 匹配不到它们，
+# 漏掉会把 LangGraph checkpoint 的未提交事务（约 2MB）带进仓库。
+*.db-shm
+*.db-wal
+*.sqlite3-shm
+*.sqlite3-wal
+
+# 运行期日志（uvicorn / streamlit 重定向输出）
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 测试
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# 虚拟环境
+# 用通配是因为本机实际存在 .venv 与 .venv-1 两个环境，
+# 只写 .venv/ 会把 13MB 的 .venv-1 漏进仓库。
+.venv*/
+venv/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# ── SQLite 附属文件 ────────────────────────────────────────────
+# `*.db` 匹配不到 WAL 模式产生的这两个附属文件。实测
+# data/app_lg_checkpoints.db-wal 有 2.1MB，属运行期产物，不入库。
+*.db-shm
+*.db-wal
+*.sqlite3-shm
+*.sqlite3-wal
+
+# ── 运行期日志 ────────────────────────────────────────────────
+*.log
+
+# ── 运行期数据与网络缓存 ──────────────────────────────────────
+# data/real 与 data/real_delisted 是 Scripts/fetch_real_history.py、
+# Scripts/fetch_delisted_history.py 从公网抓取的行情缓存（合计约 20MB），
+# 属"缓存"，按交付要求不入库；无任何测试依赖它们（已检索确认），
+# 需要复现 Sharpe 度量时用上述脚本重新抓取即可。
+# data/sample 反之要入库：它由 Scripts/generate_sample_data.py 本地生成、
+# 体积小，且 tests/test_provider_factory.py 直接依赖 data/sample/prices.csv。
+data/real/
+data/real_delisted/
+data/checkpoints/

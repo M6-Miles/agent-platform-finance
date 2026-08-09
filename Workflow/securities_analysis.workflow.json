@@ -1,0 +1,380 @@
+{
+  "$schema": "./workflow.schema.json",
+  "schema_version": "1.0",
+  "workflow_id": "securities_analysis",
+  "name": "证券分析主工作流",
+  "version": "1.0.0",
+  "engine": "langgraph",
+  "description": "投研主流程：__start__ 并行扇出到四个分析 Agent，四路汇合到综合研判，再经条件路由进入交易链（交易信号 → 人工审批 → 风控 → Pre-Flight Checklist）。本文件是 src/agent_platform/finance/securities_graph.py 的机器可读镜像，节点名、边与路由分支必须与代码一致，由 tests/test_workflow_definitions.py 强制比对以防文档漂移。",
+  "implementation": {
+    "module": "agent_platform.finance.securities_graph",
+    "builder": "build_securities_graph",
+    "entrypoint": "run_securities_analysis",
+    "resume": "resume_securities_analysis",
+    "notes": "builder 返回已编译的 CompiledStateGraph；entrypoint 同步执行一次完整分析；resume 用 Command(resume=...) 恢复被 interrupt 暂停的线程。"
+  },
+  "state": {
+    "type": "typed_dict",
+    "name": "SecuritiesAnalysisState",
+    "total": false,
+    "keys": [
+      { "name": "symbol", "description": "输入股票代码。" },
+      { "name": "request_id", "description": "本次分析 ID，缺省自动生成。" },
+      { "name": "data_mode", "description": "auto=优先实时并可降级；offline=完全跳过 AkShare，零网络调用。" },
+      { "name": "technical_analysis", "description": "技术分析结果字典，technical_agent 独占写入。" },
+      { "name": "fundamental_analysis", "description": "基本面分析结果字典，fundamental_agent 独占写入。" },
+      { "name": "industry_analysis", "description": "行业分析结果字典，industry_agent 独占写入。" },
+      { "name": "market_regime", "description": "大盘状态结果字典，market_regime_agent 独占写入。" },
+      { "name": "synthesis", "description": "综合研判结果字典。" },
+      { "name": "confidence", "description": "综合研判置信度 0.0–1.0，决定 no_trade 分支。" },
+      { "name": "trade_signal", "description": "交易信号字典；触发人工审批时也会预存待批准信号。" },
+      { "name": "har_required", "description": "True 表示 HumanApprovalRequired 已触发。" },
+      { "name": "har_detail", "description": "触发人工审批时的异常消息。" },
+      { "name": "risk_result", "description": "风控审核结果字典。" },
+      { "name": "preflight_result", "description": "Pre-Flight Checklist 结果字典。" },
+      { "name": "status", "description": "工作流状态机字段。" },
+      { "name": "final_action", "description": "execute / block / manual_review。" },
+      { "name": "errors", "description": "错误累积列表，允许多个并行节点安全追加。", "reducer": "operator.add" },
+      { "name": "trace", "description": "legacy 上下文字典，供 application_service 向后兼容。" },
+      { "name": "trace_entries", "description": "逐节点计时记录，允许多节点追加。", "reducer": "operator.add" }
+    ]
+  },
+  "parameters": [
+    {
+      "name": "low_confidence_threshold",
+      "value": 0.3,
+      "description": "综合研判置信度 ≤ 该阈值时走 no_trade 分支，不生成交易信号。",
+      "source_ref": "agent_platform.finance.securities_graph:_LOW_CONFIDENCE_THRESHOLD"
+    },
+    {
+      "name": "max_auto_position_pct",
+      "value": 10.0,
+      "description": "建议仓位超过该百分比时 trader_agent 抛出 HumanApprovalRequired，强制进入人工审批，对应 Rule/no_trade_without_confirmation.md。",
+      "source_ref": "agent_platform.finance.trader_agent:_MAX_AUTO_POSITION_PCT"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "technical_agent",
+      "title": "技术分析",
+      "type": "agent",
+      "description": "计算 MA/MACD/RSI/KDJ 等技术指标。data_mode=offline 时改用 SampleMarketDataProvider，零网络调用。",
+      "implementation": "agent_platform.finance.securities_graph:node_technical_agent",
+      "parallel_group": "analysis_fanout",
+      "requires": ["symbol", "data_mode"],
+      "produces": ["technical_analysis", "errors", "trace_entries"],
+      "on_error": "record_and_continue",
+      "notes": "TypeError/AttributeError/NameError 视为编程错误直接 reraise；其余异常写入 errors 后继续。"
+    },
+    {
+      "id": "fundamental_agent",
+      "title": "基本面分析",
+      "type": "agent",
+      "description": "拉取 PE/PB/ROE/资产负债率与 DCF 估值；离线时经 MCP 离线工具取样例数据。",
+      "implementation": "agent_platform.finance.securities_graph:node_fundamental_agent",
+      "parallel_group": "analysis_fanout",
+      "requires": ["symbol", "data_mode"],
+      "produces": ["fundamental_analysis", "errors", "trace_entries"],
+      "on_error": "record_and_continue"
+    },
+    {
+      "id": "industry_agent",
+      "title": "行业分析",
+      "type": "agent",
+      "description": "判定所属行业、行业景气度与资金流向。",
+      "implementation": "agent_platform.finance.securities_graph:node_industry_agent",
+      "parallel_group": "analysis_fanout",
+      "requires": ["symbol", "data_mode"],
+      "produces": ["industry_analysis", "errors", "trace_entries"],
+      "on_error": "record_and_continue"
+    },
+    {
+      "id": "market_regime_agent",
+      "title": "大盘状态",
+      "type": "agent",
+      "description": "判定牛熊/震荡与风险偏好；不依赖个股 symbol。",
+      "implementation": "agent_platform.finance.securities_graph:node_market_regime_agent",
+      "parallel_group": "analysis_fanout",
+      "requires": ["data_mode"],
+      "produces": ["market_regime", "errors", "trace_entries"],
+      "on_error": "record_and_continue"
+    },
+    {
+      "id": "synthesis_agent",
+      "title": "综合研判",
+      "type": "aggregator",
+      "description": "四路汇合点。四个并行输入任一为 None 即拒绝合成并写 status=error，绝不用缺失输入伪造结论。",
+      "implementation": "agent_platform.finance.securities_graph:node_synthesis_agent",
+      "requires": [
+        "symbol",
+        "technical_analysis",
+        "fundamental_analysis",
+        "industry_analysis",
+        "market_regime"
+      ],
+      "produces": ["synthesis", "confidence", "status", "errors", "trace_entries"],
+      "on_error": "structured_error"
+    },
+    {
+      "id": "no_trade",
+      "title": "低置信度退出",
+      "type": "marker",
+      "description": "低置信度终止标记，只写 status=no_trade，不设置 final_action —— 状态解析依赖 raw_status 区分 no_trade 与 completed。",
+      "implementation": "agent_platform.finance.securities_graph:node_no_trade",
+      "requires": [],
+      "produces": ["status"],
+      "on_error": "not_applicable"
+    },
+    {
+      "id": "trader_agent",
+      "title": "交易信号",
+      "type": "agent",
+      "description": "生成方向、建议仓位、目标价与止损价。仓位超阈值时捕获 HumanApprovalRequired，并把已算好的 TraderResult 预存入 trade_signal，使批准后风控无需重算。",
+      "implementation": "agent_platform.finance.securities_graph:node_trader_agent",
+      "requires": ["synthesis", "market_regime", "technical_analysis"],
+      "produces": [
+        "trade_signal",
+        "har_required",
+        "har_detail",
+        "status",
+        "errors",
+        "trace_entries"
+      ],
+      "on_error": "record_and_continue"
+    },
+    {
+      "id": "human_approval",
+      "title": "人工审批（HAR 路径）",
+      "type": "human_approval",
+      "description": "以 interrupt() 暂停图，等待 Command(resume=\"approve\"|\"reject\")。reject 时清空 trade_signal 并置 final_action=block，使风控节点不会执行。",
+      "implementation": "agent_platform.finance.securities_graph:node_human_approval",
+      "interrupts": true,
+      "requires": ["symbol", "har_detail", "trade_signal"],
+      "produces": ["status", "har_required", "final_action", "trade_signal", "trace_entries"],
+      "on_error": "not_applicable"
+    },
+    {
+      "id": "risk_manager",
+      "title": "风险管理",
+      "type": "agent",
+      "description": "核减仓位并给出风险标签。trade_signal 为空时返回结构化错误而非静默跳过。",
+      "implementation": "agent_platform.finance.securities_graph:node_risk_manager",
+      "requires": ["trade_signal"],
+      "produces": ["risk_result", "status", "errors", "trace_entries"],
+      "on_error": "record_and_continue"
+    },
+    {
+      "id": "trading_harness",
+      "title": "Pre-Flight Checklist",
+      "type": "gate",
+      "description": "交易前置检查，产出 execute / block / manual_review。manual_review 时以 interrupt() 暂停等待人工裁决。",
+      "implementation": "agent_platform.finance.securities_graph:node_trading_harness",
+      "interrupts": true,
+      "requires": ["synthesis", "trade_signal", "risk_result", "symbol"],
+      "produces": ["preflight_result", "final_action", "status", "errors", "trace_entries"],
+      "on_error": "structured_error",
+      "notes": "interrupt() 必须写在 try/except 之外：GraphInterrupt 是 Exception 子类，被 except Exception 捕获会导致中断静默失效。"
+    }
+  ],
+  "edges": [
+    { "from": "__start__", "to": "technical_agent", "type": "direct", "description": "并行扇出边之一。" },
+    { "from": "__start__", "to": "fundamental_agent", "type": "direct", "description": "并行扇出边之一。" },
+    { "from": "__start__", "to": "industry_agent", "type": "direct", "description": "并行扇出边之一。" },
+    { "from": "__start__", "to": "market_regime_agent", "type": "direct", "description": "并行扇出边之一。" },
+    {
+      "from": "technical_agent",
+      "to": "synthesis_agent",
+      "type": "direct",
+      "description": "四路汇合边之一：LangGraph 等待全部前驱完成后才调度 synthesis_agent。"
+    },
+    { "from": "fundamental_agent", "to": "synthesis_agent", "type": "direct", "description": "四路汇合边之一。" },
+    { "from": "industry_agent", "to": "synthesis_agent", "type": "direct", "description": "四路汇合边之一。" },
+    { "from": "market_regime_agent", "to": "synthesis_agent", "type": "direct", "description": "四路汇合边之一。" },
+    {
+      "from": "synthesis_agent",
+      "type": "conditional",
+      "router": "agent_platform.finance.securities_graph:route_after_synthesis",
+      "description": "按置信度与错误态三分路。",
+      "branches": [
+        {
+          "value": "no_trade",
+          "to": "no_trade",
+          "when": "status != \"error\" 且 confidence <= 0.3"
+        },
+        {
+          "value": "trader_agent",
+          "to": "trader_agent",
+          "when": "status != \"error\" 且 confidence > 0.3"
+        },
+        {
+          "value": "__end__",
+          "to": "__end__",
+          "when": "status == \"error\"（含并行输入缺失）"
+        }
+      ]
+    },
+    { "from": "no_trade", "to": "__end__", "type": "direct", "description": "低置信度路径终止。" },
+    {
+      "from": "trader_agent",
+      "type": "conditional",
+      "router": "agent_platform.finance.securities_graph:route_after_trader",
+      "description": "人工审批优先级最高，其次错误态，最后正常风控。",
+      "branches": [
+        {
+          "value": "human_approval",
+          "to": "human_approval",
+          "when": "har_required is True（建议仓位 > 10%）"
+        },
+        {
+          "value": "risk_manager",
+          "to": "risk_manager",
+          "when": "har_required is False 且 status != \"error\""
+        },
+        {
+          "value": "__end__",
+          "to": "__end__",
+          "when": "har_required is False 且 status == \"error\""
+        }
+      ]
+    },
+    {
+      "from": "human_approval",
+      "type": "conditional",
+      "router": "agent_platform.finance.securities_graph:route_after_human_approval",
+      "description": "人工裁决后二分路。",
+      "branches": [
+        {
+          "value": "risk_manager",
+          "to": "risk_manager",
+          "when": "final_action != \"block\"（人工批准）"
+        },
+        {
+          "value": "__end__",
+          "to": "__end__",
+          "when": "final_action == \"block\"（人工否决）"
+        }
+      ]
+    },
+    { "from": "risk_manager", "to": "trading_harness", "type": "direct", "description": "风控通过后进入前置检查。" },
+    {
+      "from": "trading_harness",
+      "type": "conditional",
+      "router": "agent_platform.finance.securities_graph:route_after_preflight",
+      "description": "两个可达分支都指向 __end__，区别在于 final_action 的取值语义。",
+      "branches": [
+        {
+          "value": "execute",
+          "to": "__end__",
+          "when": "final_action == \"execute\"（通过全部前置检查，仍为建议，不自动下单）"
+        },
+        {
+          "value": "block",
+          "to": "__end__",
+          "when": "final_action != \"execute\"（检查未通过或人工否决）"
+        },
+        {
+          "value": "__end__",
+          "to": "__end__",
+          "when": "当前实现不返回该值，保留以防路由函数后续扩展",
+          "reachable": false
+        }
+      ]
+    }
+  ],
+  "parallel_groups": [
+    {
+      "id": "analysis_fanout",
+      "members": [
+        "technical_agent",
+        "fundamental_agent",
+        "industry_agent",
+        "market_regime_agent"
+      ],
+      "fan_out_from": "__start__",
+      "fan_in_to": "synthesis_agent",
+      "description": "__start__ 一次性扇出四个互不依赖的分析 Agent，全部完成后由 synthesis_agent 汇合。四个节点各写独占状态键，避免并行写冲突。"
+    }
+  ],
+  "interrupts": [
+    {
+      "node": "human_approval",
+      "payload_type": "har_approval",
+      "trigger": "trader_agent 抛出 HumanApprovalRequired（建议仓位 > 10%）",
+      "conditional": false,
+      "resume_values": ["approve", "reject"],
+      "resume_api": "agent_platform.finance.securities_graph:resume_securities_analysis",
+      "payload_keys": ["type", "symbol", "reason", "trade_signal"],
+      "description": "approve → risk_manager 继续；reject → 清空 trade_signal 并 __end__。"
+    },
+    {
+      "node": "trading_harness",
+      "payload_type": "manual_review",
+      "trigger": "Pre-Flight Checklist 结果 final_action == \"manual_review\"",
+      "conditional": true,
+      "resume_values": ["approve", "reject"],
+      "resume_api": "agent_platform.finance.securities_graph:resume_securities_analysis",
+      "payload_keys": ["type", "symbol", "reason", "preflight"],
+      "description": "approve → final_action=execute；reject → final_action=block。两者随后都走向 __end__。"
+    }
+  ],
+  "checkpoint": {
+    "enabled": true,
+    "default_saver": "langgraph.checkpoint.memory:MemorySaver",
+    "production_saver": "langgraph.checkpoint.sqlite:SqliteSaver",
+    "injection_point": "build_securities_graph(checkpointer=...)",
+    "thread_id_source": "run_securities_analysis(thread_id=...)，缺省与 request_id 相同",
+    "required_for_interrupt": true,
+    "notes": "checkpoint 是 interrupt/resume 的前提：暂停时状态落盘，恢复时按 thread_id 读回。生产用 SqliteSaver，使服务实例重建后仍能 resume。"
+  },
+  "guardrails": [
+    {
+      "name": "人工确认门",
+      "class": "agent_platform.core.harness:HumanApprovalRequired",
+      "purpose": "仓位超 10% 必须人工确认，由 trader_agent 抛异常 + human_approval 的 interrupt() 落地。",
+      "applies_to": ["trader_agent", "human_approval"],
+      "rule_ref": "Rule/no_trade_without_confirmation.md"
+    },
+    {
+      "name": "数据溯源校验",
+      "class": "agent_platform.core.harness:SourceAttributionFilter",
+      "purpose": "各 Agent 输出必须携带 source/updated_at，缺失即阻断输出。",
+      "applies_to": [
+        "technical_agent",
+        "fundamental_agent",
+        "industry_agent",
+        "market_regime_agent"
+      ],
+      "rule_ref": "Rule/data_must_have_source.md"
+    },
+    {
+      "name": "违规词拦截",
+      "class": "agent_platform.core.harness:KeywordBlocker",
+      "purpose": "禁止绝对收益承诺等违规表述。",
+      "applies_to": ["synthesis_agent", "trader_agent"],
+      "rule_ref": "Rule/no_absolute_profit_claims.md"
+    },
+    {
+      "name": "输出结构校验",
+      "class": "agent_platform.core.harness:JSONSchemaValidator",
+      "purpose": "各 Agent 输出必须符合其 JSON Schema，防止字段缺失流向下游。",
+      "applies_to": ["synthesis_agent", "trader_agent", "risk_manager"]
+    }
+  ],
+  "declared_cycles": [],
+  "terminal_statuses": [
+    "no_trade",
+    "preflight_done",
+    "approved_by_human",
+    "rejected_by_human",
+    "error"
+  ],
+  "tests": [
+    "tests/test_langgraph_workflow.py",
+    "tests/test_workflow_definitions.py"
+  ],
+  "notes": [
+    "本工作流是有向无环图：interrupt() 的暂停/恢复不构成环，恢复时 LangGraph 从 checkpoint 续跑同一节点，而非新增回边。",
+    "trading_harness 的 execute 与 block 两个分支都指向 __end__，因此图中不存在专门的 execute/block 节点，差异体现在 final_action 取值上。",
+    "no_trade 节点故意不写 final_action，使上层能区分「置信度不足未交易」与「检查通过」两种终态。"
+  ]
+}

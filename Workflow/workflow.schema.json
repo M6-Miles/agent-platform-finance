@@ -1,0 +1,541 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dongfang-guoxin.local/agent-platform/Workflow/workflow.schema.json",
+  "title": "通用 Agent 平台工作流定义 Schema",
+  "description": "校验 Workflow/*.workflow.json 的结构。设计目标：工作流定义文件必须是真实实现的机器可读镜像，任何字段拼写错误都应在校验期暴露，因此全对象均设 additionalProperties=false。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "name",
+    "version",
+    "engine",
+    "description",
+    "implementation",
+    "nodes",
+    "edges"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "指向本 Schema 的相对路径，仅供编辑器补全使用。"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "description": "本 Schema 的版本号。升级不兼容字段时必须同步提升。"
+    },
+    "workflow_id": {
+      "$ref": "#/$defs/identifier",
+      "description": "工作流唯一标识，全小写下划线命名。"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "工作流中文名称。"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "工作流定义自身的语义化版本。"
+    },
+    "engine": {
+      "enum": ["langgraph", "harness_sequence"],
+      "description": "执行引擎。langgraph=LangGraph StateGraph 编排；harness_sequence=Harness Guardrail 顺序管道。"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "工作流用途说明。"
+    },
+    "implementation": {
+      "type": "object",
+      "description": "指向真实代码的入口，用于反文档漂移校验。",
+      "required": ["module"],
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "type": "string",
+          "minLength": 1,
+          "description": "实现模块的可导入路径。"
+        },
+        "builder": {
+          "type": "string",
+          "description": "构图函数名（langgraph 引擎）。"
+        },
+        "entrypoint": {
+          "type": "string",
+          "description": "同步执行入口的名称。"
+        },
+        "resume": {
+          "type": "string",
+          "description": "中断恢复入口的名称。"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "description": "工作流共享状态模型。langgraph 引擎下应与 TypedDict 注解逐字段一致。",
+      "required": ["type", "name", "keys"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": ["typed_dict", "dataclass", "dict"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "total": {
+          "type": "boolean",
+          "description": "TypedDict 的 total 参数，false 表示全部字段可选。"
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "description"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reducer": {
+                "type": "string",
+                "description": "多节点并发写入时的归并函数，例如 operator.add。缺省表示后写覆盖。"
+              }
+            }
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "parallel_groups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/parallel_group"
+      }
+    },
+    "interrupts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/interrupt"
+      }
+    },
+    "checkpoint": {
+      "$ref": "#/$defs/checkpoint"
+    },
+    "guardrails": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/guardrail"
+      }
+    },
+    "parameters": {
+      "type": "array",
+      "description": "工作流关键阈值。每项应通过 source_ref 指向代码中的真实常量，便于测试比对。",
+      "items": {
+        "$ref": "#/$defs/parameter"
+      }
+    },
+    "declared_cycles": {
+      "type": "array",
+      "description": "显式声明允许存在的环。未声明的环将被 loader 判为缺陷。",
+      "items": {
+        "type": "object",
+        "required": ["nodes", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/identifier"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "terminal_statuses": {
+      "type": "array",
+      "description": "工作流可能的终态 status 取值。",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "output_schema_fields": {
+      "type": "array",
+      "description": "最终输出对象的必填字段，应与代码中的输出 Schema 一致。",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tests": {
+      "type": "array",
+      "description": "覆盖本工作流的测试文件，防止出现无测试的工作流定义。",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "endpoint": {
+      "type": "string",
+      "pattern": "^(__start__|__end__|[a-z][a-z0-9_]*)$",
+      "description": "边的端点：节点 id，或 LangGraph 虚拟端点 __start__ / __end__。"
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "title", "type", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "enum": [
+            "agent",
+            "aggregator",
+            "gate",
+            "human_approval",
+            "guardrail",
+            "compute",
+            "marker"
+          ],
+          "description": "节点语义类别。marker 表示只写状态标记、不做实质计算的节点。"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementation": {
+          "type": "string",
+          "minLength": 1,
+          "description": "真实实现，格式 module:attribute。loader 会要求 langgraph 引擎的每个节点都填写。"
+        },
+        "guardrail_class": {
+          "type": "string",
+          "minLength": 1,
+          "description": "guardrail 类型节点对应的 Guardrail 类，格式 module:ClassName。"
+        },
+        "requires": {
+          "type": "array",
+          "description": "本节点读取的状态字段。",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "produces": {
+          "type": "array",
+          "description": "本节点写入的状态字段。",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "parallel_group": {
+          "$ref": "#/$defs/identifier",
+          "description": "所属并行组 id，必须在 parallel_groups 中声明。"
+        },
+        "interrupts": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否调用 interrupt() 暂停工作流。为 true 时必须在 interrupts 数组中登记。"
+        },
+        "on_error": {
+          "enum": ["record_and_continue", "structured_error", "reraise", "not_applicable"],
+          "description": "异常策略。record_and_continue=写入 errors 后继续；structured_error=返回错误态；reraise=向上抛出。"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["from", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "to": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "type": {
+          "enum": ["direct", "conditional"]
+        },
+        "router": {
+          "type": "string",
+          "minLength": 1,
+          "description": "条件边的路由函数，格式 module:function 或函数名。"
+        },
+        "branches": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["value", "to", "when"],
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "description": "路由函数的返回值。"
+              },
+              "to": {
+                "$ref": "#/$defs/endpoint"
+              },
+              "when": {
+                "type": "string",
+                "minLength": 1,
+                "description": "该分支成立的条件（人类可读）。"
+              },
+              "reachable": {
+                "type": "boolean",
+                "default": true,
+                "description": "false 表示该映射为防御性冗余，路由函数实际不会返回此值。"
+              }
+            }
+          }
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "direct"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["to"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "conditional"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["router", "branches"]
+          }
+        }
+      ]
+    },
+    "parallel_group": {
+      "type": "object",
+      "required": ["id", "members", "fan_out_from", "fan_in_to", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "members": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "fan_out_from": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "fan_in_to": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "interrupt": {
+      "type": "object",
+      "required": ["node", "payload_type", "trigger", "resume_values"],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "$ref": "#/$defs/identifier"
+        },
+        "payload_type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "interrupt() 载荷中的 type 字段值。"
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conditional": {
+          "type": "boolean",
+          "default": false,
+          "description": "true 表示仅在特定条件下才触发 interrupt。"
+        },
+        "resume_values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "resume_api": {
+          "type": "string",
+          "description": "恢复执行的接口，格式 module:function。"
+        },
+        "payload_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "default_saver": {
+          "type": "string",
+          "description": "缺省 checkpointer，格式 module:ClassName。"
+        },
+        "production_saver": {
+          "type": "string"
+        },
+        "injection_point": {
+          "type": "string",
+          "description": "注入 checkpointer 的调用签名说明。"
+        },
+        "thread_id_source": {
+          "type": "string"
+        },
+        "required_for_interrupt": {
+          "type": "boolean",
+          "description": "true 表示 interrupt/resume 依赖 checkpoint 才能工作。"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "guardrail": {
+      "type": "object",
+      "required": ["name", "class", "purpose"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "class": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Guardrail 实现类，格式 module:ClassName。"
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applies_to": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rule_ref": {
+          "type": "string",
+          "description": "对应 Rule/ 目录下的规则文件。"
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["name", "value", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {},
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "代码中的真实常量，格式 module:ATTRIBUTE。测试会 import 后比对数值。"
+        },
+        "verified_by": {
+          "type": "string",
+          "description": "当无法用常量比对时，说明用哪种行为测试验证。"
+        }
+      }
+    }
+  }
+}

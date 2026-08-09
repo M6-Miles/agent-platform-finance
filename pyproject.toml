@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-platform-finance-demo"
+version = "0.1.0"
+description = "本地演示版通用 Agent 平台及证券金融分析应用"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.27,<1.0",
+    "pandas>=2.1,<3.0",
+    "pydantic>=2.6,<3.0",
+    "plotly>=5.0,<7.0",
+    "langgraph>=1.2.10,<2.0",
+    "langgraph-checkpoint-sqlite>=2.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "httpx>=0.27,<1.0",
+]
+akshare = [
+    "akshare>=1.10,<2.0",
+]
+tushare = [
+    "tushare>=1.2.89,<2.0",
+]
+llm = [
+    "openai>=1.0,<2.0",
+    "anthropic>=0.30,<1.0",
+    "python-dotenv>=1.0,<2.0",
+    "httpx>=0.27,<1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["agent_platform*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "online: marks tests that require real network access / AkShare / Tushare (deselect with '-m \"not online\"')",
+]

@@ -1,0 +1,431 @@
+from __future__ import annotations
+
+import threading
+import logging
+import time
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
+
+import pandas as pd
+
+from agent_platform.finance.errors import (
+    InvalidSecuritySymbolError,
+    MarketDataDependencyError,
+    MarketDataUnavailableError,
+)
+from agent_platform.finance.market_data_provider import SecurityInfo
+
+StockListLoader = Callable[[], pd.DataFrame]
+HistoryLoader = Callable[..., pd.DataFrame]
+
+
+class AkShareMarketDataProvider:
+    """通过 AkShare 公开接口读取 A 股证券列表和日线行情。"""
+
+    source_name = "AkShare 公开数据"
+
+    def __init__(
+        self,
+        stock_list_loader: StockListLoader | None = None,
+        history_loader: HistoryLoader | None = None,
+        default_history_days: int = 365,
+    ) -> None:
+        self._stock_list_loader = stock_list_loader
+        self._history_loader = history_loader
+        self.default_history_days = default_history_days
+        # 股票列表本地缓存：首次拉取约15秒，之后从内存直接返回
+        self._stock_list_cache: tuple[datetime, pd.DataFrame] | None = None
+        self._stock_list_lock = threading.Lock()
+        self._STOCK_LIST_TTL_SECONDS: int = 3600  # 1小时内复用缓存
+
+    def _load_akshare(self) -> Any:
+        try:
+            import akshare as ak
+        except ImportError as exc:
+            raise MarketDataDependencyError(
+                '当前未安装 AkShare。请执行 python -m pip install -e ".[akshare]"。'
+            ) from exc
+        return ak
+
+    def _stock_list(self) -> pd.DataFrame:
+        """获取 A 股证券列表，结果缓存 1 小时，线程安全。"""
+        with self._stock_list_lock:
+            # 命中缓存则直接返回
+            if self._stock_list_cache is not None:
+                cached_at, data = self._stock_list_cache
+                if (datetime.now(UTC) - cached_at).total_seconds() < self._STOCK_LIST_TTL_SECONDS:
+                    return data
+            # 未命中或过期：在锁内拉取（防止多线程重复拉取）
+            loader = self._stock_list_loader
+            if loader is None:
+                loader = self._load_akshare().stock_info_a_code_name
+            try:
+                data = loader()
+            except Exception as exc:
+                raise MarketDataUnavailableError(
+                    f"AkShare 获取 A 股证券列表失败：{exc}"
+                ) from exc
+            if data is None or data.empty:
+                raise MarketDataUnavailableError("AkShare 未返回 A 股证券列表。")
+            self._stock_list_cache = (datetime.now(UTC), data)
+            return data
+
+    def list_securities(self) -> list[SecurityInfo]:
+        data = self._stock_list()
+        code_column = self._require_column(data, ("code", "代码"), "证券代码")
+        name_column = self._require_column(data, ("name", "名称"), "证券名称")
+        updated_at = datetime.now(UTC).date().isoformat()
+        securities: list[SecurityInfo] = []
+        for row in data[[code_column, name_column]].itertuples(index=False, name=None):
+            symbol = self.normalize_symbol(str(row[0]))
+            securities.append(
+                SecurityInfo(
+                    market=self.market_for_symbol(symbol),
+                    symbol=symbol,
+                    name=str(row[1]),
+                    source=self.source_name,
+                    updated_at=updated_at,
+                )
+            )
+        return securities
+
+    def get_price_history(
+        self,
+        symbol: str,
+        start: date | None = None,
+        end: date | None = None,
+    ) -> pd.DataFrame:
+        normalized_symbol = self.normalize_symbol(symbol)
+        # 既有契约：默认结束日为本地自然日 today，默认起始日为
+        # today - default_history_days。使用 date.today() 而非 UTC 日期，
+        # 避免东八区在 UTC 午夜前后算出前一天，导致默认窗口整体偏移一天。
+        today = date.today()  # 只取一次，避免跨午夜时 start/end 落在不同自然日
+        effective_end = end or today
+        effective_start = start or (today - timedelta(days=self.default_history_days))
+        if effective_start > effective_end:
+            raise ValueError("开始日期不能晚于结束日期")
+
+        _max_attempts = 3
+        _last_exc: Exception | None = None
+        raw = None
+
+        if self._history_loader is not None:
+            # 测试 mock 路径：直接调用提供的 loader
+            try:
+                raw = self._history_loader(
+                    symbol=normalized_symbol,
+                    period="daily",
+                    start_date=effective_start.strftime("%Y%m%d"),
+                    end_date=effective_end.strftime("%Y%m%d"),
+                    adjust="",
+                )
+            except Exception as exc:
+                raise MarketDataUnavailableError(
+                    f"AkShare 获取 {normalized_symbol} 日线失败：{exc}"
+                ) from exc
+        else:
+            # 生产路径：优先使用 Stooq 数据源（stock_zh_a_daily），
+            # 不依赖东方财富接口，在大多数网络环境下更稳定
+            ak_module = self._load_akshare()
+            market = self.market_for_symbol(normalized_symbol)
+            prefix = "sh" if market == "上交所" else "bj" if market == "北交所" else "sz"
+            daily_sym = f"{prefix}{normalized_symbol}"
+
+            for _attempt in range(_max_attempts):
+                try:
+                    raw = ak_module.stock_zh_a_daily(
+                        symbol=daily_sym,
+                        start_date=effective_start.strftime("%Y%m%d"),
+                        end_date=effective_end.strftime("%Y%m%d"),
+                        adjust="qfq",
+                    )
+                    break
+                except Exception as exc:
+                    _last_exc = exc
+                    if _attempt < _max_attempts - 1:
+                        time.sleep(1.5)
+
+            if raw is None:
+                # Stooq 全部失败，尝试 curl_cffi 直调东方财富（备用）
+                raw = self._fallback_daily(normalized_symbol, effective_start, effective_end)
+                if raw is None:
+                    raise MarketDataUnavailableError(
+                        f"AkShare 获取 {normalized_symbol} 日线失败"
+                        f"（Stooq 已重试 {_max_attempts} 次，curl_cffi 备用也失败）：{_last_exc}"
+                    ) from _last_exc
+        if raw is None or raw.empty:
+            raise InvalidSecuritySymbolError(
+                f"AkShare 未返回证券 {normalized_symbol} 在所选日期范围内的日线数据。"
+            )
+
+        columns = {
+            "date": self._require_column(raw, ("日期", "date"), "日期"),
+            "open": self._require_column(raw, ("开盘", "open"), "开盘价"),
+            "high": self._require_column(raw, ("最高", "high"), "最高价"),
+            "low": self._require_column(raw, ("最低", "low"), "最低价"),
+            "close": self._require_column(raw, ("收盘", "close"), "收盘价"),
+            "volume": self._require_column(raw, ("成交量", "volume"), "成交量"),
+        }
+        result = raw[
+            [
+                columns["date"],
+                columns["open"],
+                columns["high"],
+                columns["low"],
+                columns["close"],
+                columns["volume"],
+            ]
+        ].rename(columns={source: target for target, source in columns.items()})
+        result["date"] = pd.to_datetime(result["date"], errors="coerce").dt.date
+        for column in ("open", "high", "low", "close", "volume"):
+            result[column] = pd.to_numeric(result[column], errors="coerce")
+        result = result.dropna(subset=["date", "open", "high", "low", "close"])
+        if result.empty:
+            raise MarketDataUnavailableError(
+                f"AkShare 返回的 {normalized_symbol} 日线缺少有效价格字段。"
+            )
+
+        name = self._lookup_name(normalized_symbol)
+        result["market"] = self.market_for_symbol(normalized_symbol)
+        result["symbol"] = normalized_symbol
+        result["name"] = name
+        result["source"] = f"{self.source_name}（前复权日线·Stooq）"
+        result["updated_at"] = datetime.now(UTC).date().isoformat()
+        ordered_columns = [
+            "market",
+            "symbol",
+            "name",
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "source",
+            "updated_at",
+        ]
+        return result[ordered_columns].sort_values("date").reset_index(drop=True)
+
+    def _fallback_daily(
+        self,
+        normalized_symbol: str,
+        start: date,
+        end: date,
+    ) -> pd.DataFrame | None:
+        """curl_cffi 直调东方财富接口作为最后备用方案。网络不可达时返回 None。"""
+        try:
+            from curl_cffi import requests as cffi_requests
+        except ImportError:
+            return None
+
+        try:
+            market_code = 1 if normalized_symbol.startswith("6") else 0
+            url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            params = {
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116",
+                "ut": "7eea3edcaed734bea9cbfc24409ed989",
+                "klt": "101",
+                "fqt": "0",
+                "secid": f"{market_code}.{normalized_symbol}",
+                "beg": start.strftime("%Y%m%d"),
+                "end": end.strftime("%Y%m%d"),
+            }
+            resp = cffi_requests.get(
+                url, params=params, impersonate="chrome110", timeout=15
+            )
+            data_json = resp.json()
+            klines = (data_json.get("data") or {}).get("klines")
+            if not klines:
+                return None
+
+            raw = pd.DataFrame([item.split(",") for item in klines])
+            # columns from East Money: 日期,开盘,收盘,最高,最低,成交量,...
+            raw.columns = list(range(len(raw.columns)))
+            col_map = {0: "日期", 1: "开盘", 2: "收盘", 3: "最高", 4: "最低", 5: "成交量"}
+            raw = raw.rename(columns=col_map)
+            # 注意东方财富返回的是 开盘/收盘/最高/最低，而标准是 open/high/low/close
+            # 此处字段名与 _require_column 的候选列表匹配
+            return raw
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "curl_cffi fallback failed for %s: %s", normalized_symbol, exc
+            )
+            return None
+
+    def _lookup_name(self, symbol: str) -> str:
+        # 优先用单股信息接口：实时准确，支持新股首日（如 N嘉立创），
+        # 不受全市场列表缓存过期或代码复用问题影响
+        try:
+            name = self._get_name_via_individual_info(symbol)
+            if name:
+                return name
+        except Exception:
+            pass
+        # 回退到全市场列表缓存
+        try:
+            data = self._stock_list()
+            code_column = self._require_column(data, ("code", "代码"), "证券代码")
+            name_column = self._require_column(data, ("name", "名称"), "证券名称")
+            normalized_codes = data[code_column].astype(str).str.zfill(6)
+            matched = data.loc[normalized_codes == symbol, name_column]
+            if not matched.empty:
+                return str(matched.iloc[0])
+        except MarketDataUnavailableError:
+            pass
+        return f"A股 {symbol}"
+
+    def get_realtime_quote(self, symbol: str) -> dict:
+        """获取实时行情快照（腾讯行情分钟线接口）。
+
+        仅返回真实行情。接口不可用时抛 ``MarketDataUnavailableError``，
+        不生成任何模拟或随机价格。
+        """
+        ak_module = self._load_akshare()
+        normalized = self.normalize_symbol(symbol)
+        _log = logging.getLogger(__name__)
+
+        # 北交所（8xxxxx / 9xxxxx）腾讯行情不支持：显式不可用，不编造价格
+        if normalized.startswith(("8", "9")):
+            _log.info("北交所代码 %s 不支持腾讯行情实时接口", normalized)
+            self._raise_quote_unavailable(normalized, "北交所暂不支持实时行情接口")
+
+        # 上交所(6xxxxx) → sh前缀；深交所(0/1/2/3xxxxx) → sz前缀
+        if normalized.startswith("6"):
+            tencent_sym = f"sh{normalized}"
+        else:
+            tencent_sym = f"sz{normalized}"
+
+        try:
+            df = ak_module.stock_zh_a_minute(symbol=tencent_sym, period="1", adjust="")
+            if df is None or df.empty:
+                _log.warning("腾讯行情返回空数据 %s", normalized)
+                self._raise_quote_unavailable(normalized, "腾讯行情接口返回空数据")
+
+            # 最新分钟收盘价 = 当前价格；首根K线开盘 ≈ 今日参考开盘
+            latest_price = float(df.iloc[-1]["close"])
+            first_open   = float(df.iloc[0]["open"])
+            prev_close   = first_open if first_open > 0 else latest_price
+            change_pct   = round((latest_price - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0
+
+            return {
+                "symbol":     normalized,
+                "name":       self._get_name_via_individual_info(normalized) or f"A股 {normalized}",
+                "price":      latest_price,
+                "prev_close": round(prev_close, 2),
+                "change_pct": change_pct,
+                "market":     self.market_for_symbol(normalized),
+                "source":     "腾讯行情实时数据",
+                "data_status": "live",
+                "fallback_reason": None,
+            }
+        except MarketDataUnavailableError:
+            # 已是显式不可用（空数据分支），保持原因不被包装成第二层错误
+            raise
+        except Exception as exc:
+            _log.warning("腾讯行情接口失败: %s", exc)
+            self._raise_quote_unavailable(
+                normalized, f"腾讯行情接口失败（{type(exc).__name__}）：{exc}"
+            )
+
+    def _get_name_via_individual_info(self, symbol: str) -> str | None:
+        """用单股信息接口查公司简称（支持新股首日上市，轻量单次请求）。"""
+        ak_module = self._load_akshare()
+        try:
+            info_df = ak_module.stock_individual_info_em(symbol=symbol)
+            # 返回两列 DataFrame，第0列为字段名，第1列为值
+            name_rows = info_df[info_df.iloc[:, 0].isin(["股票简称", "名称", "name"])]
+            if not name_rows.empty:
+                return str(name_rows.iloc[0, 1])
+        except Exception:
+            pass
+        return None
+
+    def _raise_quote_unavailable(self, symbol: str, reason: str) -> None:
+        """auto 模式下行情接口不可用时显式报错。
+
+        绝不生成随机价格：模拟盘与 Agent 只能引用真实数据，
+        取不到就必须让上层显式告知“暂不可用”。需要零网络演示时请显式
+        使用 offline 样例数据源（``SampleMarketDataProvider``）。
+        """
+        raise MarketDataUnavailableError(
+            f"无法获取 {symbol} 的实时行情（{reason}）。"
+            "本数据源不会生成模拟价格；如需离线演示请切换 data_mode=offline。"
+        )
+
+    def _get_quote_via_hist(self, symbol: str) -> dict:
+        """备用报价：单股历史行情接口，用于全市场快照未收录的新股/停牌股。"""
+        from datetime import date, timedelta
+
+        ak_module = self._load_akshare()
+        # 用 _lookup_name 查名称（先走缓存全市场列表，最可靠；
+        # 单股接口 _get_name_via_individual_info 网络不稳定时会返回 None）
+        name = self._lookup_name(symbol)
+        today = date.today()
+        start = (today - timedelta(days=7)).strftime("%Y%m%d")
+        end = today.strftime("%Y%m%d")
+        try:
+            hist_df = ak_module.stock_zh_a_hist(
+                symbol=symbol, period="daily",
+                start_date=start, end_date=end, adjust="",
+            )
+        except Exception as exc:
+            raise InvalidSecuritySymbolError(
+                f"找不到证券代码 {symbol} 的行情数据：{exc}"
+            ) from exc
+        if hist_df.empty:
+            raise InvalidSecuritySymbolError(
+                f"证券代码 {symbol} 在近7个交易日无行情（可能未上市或已退市）"
+            )
+        last = hist_df.iloc[-1]
+        price = float(last.get("收盘", last.get("close", 0)))
+        prev_close_val = float(last.get("昨收", last.get("开盘", last.get("open", price))))
+        change_pct = (
+            round((price - prev_close_val) / prev_close_val * 100, 2)
+            if prev_close_val else 0.0
+        )
+        return {
+            "symbol": symbol,
+            "name": name,
+            "price": price,
+            "prev_close": prev_close_val,
+            "change_pct": change_pct,
+            "market": self.market_for_symbol(symbol),
+            "source": "东方财富历史行情（单股备用）",
+        }
+
+    @staticmethod
+    def normalize_symbol(symbol: str) -> str:
+        value = symbol.strip().upper()
+        for prefix in ("SH", "SZ", "BJ"):
+            if value.startswith(prefix):
+                value = value[2:]
+                break
+        value = value.split(".", maxsplit=1)[0]
+        if not (len(value) == 6 and value.isdigit()):
+            raise InvalidSecuritySymbolError(
+                "A 股证券代码应为 6 位数字，例如 600519 或 000001。"
+            )
+        return value
+
+    @staticmethod
+    def market_for_symbol(symbol: str) -> str:
+        if symbol.startswith(("4", "8", "92")):
+            return "北交所"
+        if symbol.startswith(("5", "6", "9")):
+            return "上交所"
+        return "深交所"
+
+    @staticmethod
+    def _require_column(
+        frame: pd.DataFrame,
+        candidates: tuple[str, ...],
+        display_name: str,
+    ) -> str:
+        for column in candidates:
+            if column in frame.columns:
+                return column
+        raise MarketDataUnavailableError(
+            f"AkShare 返回结果缺少{display_name}字段；上游接口可能已变化。"
+        )

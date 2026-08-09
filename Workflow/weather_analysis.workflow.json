@@ -1,0 +1,175 @@
+{
+  "$schema": "./workflow.schema.json",
+  "schema_version": "1.0",
+  "workflow_id": "weather_analysis",
+  "name": "天气分析工作流（非金融领域可移植性验证）",
+  "version": "1.0.0",
+  "engine": "harness_sequence",
+  "description": "examples/weather_analysis 的机器可读镜像。该 Demo 不使用 LangGraph，而是 Harness Guardrail 顺序管道：领域计算产出 dict 后，依次通过与金融 Agent 完全相同的三个 Guardrail，最后落成 frozen dataclass。它证明平台的 Guardrail 层与金融领域零耦合——换领域只需换 Schema 与领域计算，Guardrail 机制改动 0 行。",
+  "implementation": {
+    "module": "weather_agent",
+    "entrypoint": "WeatherAnalysisAgent.analyze",
+    "notes": "该模块位于 examples/weather_analysis/，非 src 包内，导入前需把该目录加入 sys.path（见 tests/test_p05_weather_demo.py 的做法）。"
+  },
+  "parameters": [
+    {
+      "name": "min_data_points",
+      "value": 2,
+      "description": "气温序列最少数据点数，不足时抛 ValueError 而非返回残缺结果。",
+      "verified_by": "tests/test_p05_weather_demo.py::TestEdgeCases::test_raises_on_single_temp"
+    },
+    {
+      "name": "trend_threshold_c",
+      "value": 1.0,
+      "description": "后半段均温减前半段均温的绝对值超过该阈值才判为升温/降温，否则判为平稳。",
+      "verified_by": "tests/test_workflow_definitions.py::TestWeatherWorkflowMatchesCode::test_trend_threshold_matches_behaviour（用跨阈值样本反推）"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "validate_input",
+      "title": "输入校验",
+      "type": "compute",
+      "implementation": "weather_agent:WeatherAnalysisAgent.analyze",
+      "description": "校验气温序列长度 ≥ 2，不足则抛 ValueError。拒绝在数据不足时产出任何结论。",
+      "requires": ["city", "temps"],
+      "produces": [],
+      "on_error": "reraise"
+    },
+    {
+      "id": "compute_statistics",
+      "title": "统计量计算",
+      "type": "compute",
+      "implementation": "weather_agent:WeatherAnalysisAgent.analyze",
+      "description": "用 statistics 标准库计算均温、最高温、最低温、温差与标准差（波动率），全部为确定性代码计算，不经 LLM。",
+      "requires": ["temps"],
+      "produces": ["avg_temp_c", "max_temp_c", "min_temp_c", "temp_range_c", "volatility_c"],
+      "on_error": "reraise"
+    },
+    {
+      "id": "classify_trend",
+      "title": "趋势判定",
+      "type": "compute",
+      "implementation": "weather_agent:WeatherAnalysisAgent.analyze",
+      "description": "以序列中点切分，后半段均值减前半段均值，差值超过 ±1.0°C 判为 warming/cooling，否则 stable。",
+      "requires": ["temps"],
+      "produces": ["trend"],
+      "on_error": "reraise"
+    },
+    {
+      "id": "compose_report",
+      "title": "报告组装",
+      "type": "compute",
+      "implementation": "weather_agent:WeatherAnalysisAgent.analyze",
+      "description": "组装中文摘要，并补齐 source / updated_at / disclaimer 三个溯源与免责字段。",
+      "requires": ["city", "avg_temp_c", "max_temp_c", "min_temp_c", "temp_range_c", "trend", "volatility_c"],
+      "produces": ["summary", "source", "updated_at", "disclaimer"],
+      "on_error": "reraise"
+    },
+    {
+      "id": "guardrail_schema",
+      "title": "Guardrail：结构校验",
+      "type": "guardrail",
+      "implementation": "agent_platform.core.harness:JSONSchemaValidator",
+      "guardrail_class": "agent_platform.core.harness:JSONSchemaValidator",
+      "description": "按 WEATHER_REPORT_SCHEMA 校验输出结构，字段缺失或类型不符即抛 GuardrailViolation。与金融 Agent 用的是同一个类。",
+      "requires": [],
+      "produces": [],
+      "on_error": "reraise"
+    },
+    {
+      "id": "guardrail_source",
+      "title": "Guardrail：数据溯源",
+      "type": "guardrail",
+      "implementation": "agent_platform.core.harness:SourceAttributionFilter",
+      "guardrail_class": "agent_platform.core.harness:SourceAttributionFilter",
+      "description": "要求 source 与 updated_at 非空，缺失即阻断输出流。",
+      "requires": ["source", "updated_at"],
+      "produces": [],
+      "on_error": "reraise"
+    },
+    {
+      "id": "guardrail_keyword",
+      "title": "Guardrail：违规词过滤",
+      "type": "guardrail",
+      "implementation": "agent_platform.core.harness:KeywordBlocker",
+      "guardrail_class": "agent_platform.core.harness:KeywordBlocker",
+      "description": "拦截「100%准确」「绝对不会」「保证温度」「精准预测未来」等绝对化表述，对应金融侧禁止绝对收益承诺的同一机制。",
+      "requires": [],
+      "produces": [],
+      "on_error": "reraise"
+    },
+    {
+      "id": "emit_report",
+      "title": "产出报告",
+      "type": "marker",
+      "implementation": "weather_agent:WeatherReport",
+      "description": "全部 Guardrail 通过后，把校验过的 dict 落成 frozen dataclass WeatherReport 返回。",
+      "requires": [],
+      "produces": [],
+      "on_error": "not_applicable"
+    }
+  ],
+  "edges": [
+    { "from": "__start__", "to": "validate_input", "type": "direct" },
+    { "from": "validate_input", "to": "compute_statistics", "type": "direct" },
+    { "from": "compute_statistics", "to": "classify_trend", "type": "direct" },
+    { "from": "classify_trend", "to": "compose_report", "type": "direct" },
+    {
+      "from": "compose_report",
+      "to": "guardrail_schema",
+      "type": "direct",
+      "description": "进入 Guardrail 链，顺序与 WeatherAnalysisAgent._guardrails 列表一致。"
+    },
+    { "from": "guardrail_schema", "to": "guardrail_source", "type": "direct" },
+    { "from": "guardrail_source", "to": "guardrail_keyword", "type": "direct" },
+    { "from": "guardrail_keyword", "to": "emit_report", "type": "direct" },
+    { "from": "emit_report", "to": "__end__", "type": "direct" }
+  ],
+  "checkpoint": {
+    "enabled": false,
+    "notes": "顺序管道为单次同步调用，无中断点，因此不需要 checkpoint。这也说明 checkpoint 是 LangGraph 编排层的能力，而非 Harness 层的强制依赖。"
+  },
+  "guardrails": [
+    {
+      "name": "结构化输出校验",
+      "class": "agent_platform.core.harness:JSONSchemaValidator",
+      "purpose": "按 WEATHER_REPORT_SCHEMA 校验输出结构。",
+      "applies_to": ["guardrail_schema"]
+    },
+    {
+      "name": "数据来源完整性",
+      "class": "agent_platform.core.harness:SourceAttributionFilter",
+      "purpose": "确保 source 与 updated_at 非空。",
+      "applies_to": ["guardrail_source"],
+      "rule_ref": "Rule/data_must_have_source.md"
+    },
+    {
+      "name": "绝对化表述拦截",
+      "class": "agent_platform.core.harness:KeywordBlocker",
+      "purpose": "拦截不负责任的绝对化预测表述。",
+      "applies_to": ["guardrail_keyword"],
+      "rule_ref": "Rule/no_absolute_profit_claims.md"
+    }
+  ],
+  "terminal_statuses": ["report_emitted", "guardrail_violation", "input_rejected"],
+  "output_schema_fields": [
+    "city",
+    "period_days",
+    "avg_temp_c",
+    "max_temp_c",
+    "min_temp_c",
+    "temp_range_c",
+    "trend",
+    "volatility_c",
+    "summary",
+    "source",
+    "updated_at",
+    "disclaimer"
+  ],
+  "tests": ["tests/test_p05_weather_demo.py", "tests/test_workflow_definitions.py"],
+  "notes": [
+    "与证券工作流的差异仅在 engine：一个是 LangGraph StateGraph 编排，一个是 Harness 顺序管道。两者共用同一份 workflow.schema.json 与同一个 loader，说明工作流定义层本身也是领域无关的。",
+    "四个 compute 节点的 implementation 都指向 WeatherAnalysisAgent.analyze —— 它们是该方法内部的顺序步骤，不是独立函数。这里如实标注，不为了好看而虚构不存在的函数名。"
+  ]
+}
