@@ -621,3 +621,133 @@
   带量级的区间。E-01 仍为唯一 false —— 且第③项的方向与前两项一致：
   加回死者后数字更差，不是更好。三项做完，净效果依然是把数字改小。
 [2026-08-07] 代码整理：证券分析已完全使用 LangGraph；移除无生产调用的旧 GraphEngine、历史 YAML 工作流、旧专用测试及生成产物。
+
+[2026-08-09] 补齐 Loop 四要素缺口 + MCP shim 实调用证明 + Git 首次提交
+
+  ── [1] Loop 的心跳/事件钩子/持久化记忆/目标循环（说明书要求"项目内最小可靠可测实现"）──
+
+  改造前 Loop 只有 agent_runtime.py 的 ReAct（max_steps=4），说明书要求的
+  "心跳/定时、事件钩子、目标循环 + 可持久化记忆"在代码里没有对应物。本轮新增
+  四个模块，全部可跑可测，不是文档或假接口：
+
+    core/scheduler.py     心跳/定时。注入式时钟（Clock=Callable[[],float]，默认
+                          time.monotonic，系统时钟被改不会错乱定时），配 ManualClock
+                          让定时测试零 sleep、完全确定。三条纪律写进 docstring：
+                          单个定时器回调异常不影响其他定时器；异常不得静默（进
+                          history、计入 stats()['failed']）；漏拍不补发连击 ——
+                          连发会在恢复瞬间产生风暴且掩盖"曾经卡住"，改为记录
+                          skipped_beats。
+    core/event_hooks.py   事件钩子。LoopEvent 用常量而非裸字符串（拼错在导入期
+                          就暴露），9 个事件与五要素 1:1 对应。监听者异常不拖垮
+                          主流程但必须留痕。priority+order 双键排序保证确定性。
+    core/loop_memory.py   可持久化记忆。独立 loop_memory 表，不改既有 schema
+                          （chat_messages 存对话，Loop 记忆存推理产物，用途不同）。
+                          验收口径是"换进程、换实例、指向同一文件仍能原样读回"，
+                          不是"dict 非空"。
+    core/agent_loop.py    目标循环。把规划/工具调用/观察/反思/继续或结束五要素做成
+                          显式产物（写入记忆 + 事件总线），一次运行事后可审计。
+
+  新增 186 项测试（scheduler 39 / event_hooks 38 / loop_memory 49 / agent_loop 60）。
+
+  ── [2] 用变异测试证明这些测试真能发现缺陷（而不是陪跑）──
+
+  四次变异，各打一条红线，全部被抓到、全部干净还原：
+    (a) 心跳回调失败伪装成 ok=True        → test_failing_callback_does_not_block_others 失败
+    (b) 钩子失败伪装成 ok=True            → test_failing_handler_does_not_stop_others 失败
+    (c) SQLite 假持久化（不提交）         → test_records_returns_in_insertion_order[sqlite] 失败
+    (d) 反思器把失败工具的错误文本当证据  → test_failed_output_containing_keyword_does_not_meet_goal 失败
+
+  (d) 是设计时就防的坑：失败工具的报错文本里可能恰好含有关键词（例如报错里带
+  "收盘价"二字），若把失败输出也算证据，一次失败会被判成目标达成。反思器因此
+  只认 o.ok 的观察。
+
+  ── [3] Scripts/run_agent_loop_demo.py：Loop 不能只在测试里可达 ──
+
+  离线跑通并自带会失败的审计块（缺任何一项直接 exit 1）：7 类记忆全部落库、
+  9 个事件全部触发、hook_failures=0、heartbeats==iterations、3 次 MCP 调用全部
+  requires_network=False、blocked_offline=0、重开文件后 14 条记录原样读回。
+
+  首跑 exit 1，报"loop_start / iteration_end / loop_end 未触发"。没有下调审计门槛，
+  而是查清原因：Loop 确实发了全部 10 个事件，但 EventBus.emit 只按"处理器被调用"
+  记 history —— 没有监听者的事件不留痕。是 demo 少注册监听者，不是 Loop 少发事件。
+  给 all_events() 挂静默记录器后 exit 0。
+
+  ── [4] 顺带修掉一个真实缺陷：SQLite 连接句柄泄漏 ──
+
+  demo 清理临时库时报 WinError 32。根因是 with sqlite3.connect(...) 只提交事务、
+  不关闭连接，句柄要等 GC 才释放。加 _session() 上下文管理器（with 负责提交/回滚，
+  finally 负责 close），四处调用点全部改走它。长时间运行的 Loop 本来会累积句柄，
+  属真实缺陷而非风格问题。
+
+  ── [5] 根目录 MCP shim：从"能导入"升级为"每个函数都真能路由"──
+
+  原 test_root_mcp_shims_delegate_to_package 只断言 shim 能被导入且文本里提到
+  统一包 —— 把 "get_fund_flow" 写成 "get_fundflow" 也照样通过。那样的 shim 是
+  "看起来有能力，一调就炸"。新增 TestRootShimsActuallyRoute，逐个真正调用全部
+  13 个 shim（offline=True），断言不抛 MCPToolNotFoundError、信封 tool 名正确、
+  error_type == "OfflineModeBlocked"。离线模式在这里一举两用：既是零网络保证，
+  又是工具名拼写探针 —— 名字错了抛异常，名字对了必然被阻断，整个用例不需要联网。
+  变异验证：把 mcp_get_fund_flow 的工具名改成 get_fundflow，新用例立即失败
+  （MCPToolNotFoundError），改回后 74 项全过。
+
+  ── [6] auto 模式实时行情：真试了，真失败，如实记录 ──
+
+  本机环境 DNS/TCP443/TLS 握手全部正常，明文 HTML 与部分 eastmoney 接口返回 200，
+  但 AkShare 的数据接口（stock/get、kline/get、clist）连续 10/10 被
+  RemoteDisconnected 掐断。因此 auto 模式取不到真实行情 —— 但行为是正确的：
+  返回 ok=False、error_type=ConnectionError、data=None，不编价格；基本面 Agent
+  降级时 data_status='fallback'、fallback_reason 写明失败原因、source 点名失败工具。
+  结论是"本环境拿不到真实行情"，不是"代码不会取行情"，两者不可混同。
+
+  ── [7] 文档陈旧数字订正（说明书要求删除过期数字）──
+
+  README.md 576 / DELIVERY_SUMMARY.md 602×4 处 + 358 一处 → 1220 passed, 1 skipped。
+  AGENTS.md 目录树补 Workflow/（原本整个目录缺失）与四个新 Loop 模块，
+  agent_runtime.py 的注释不再单独代表 Loop。checklist.json test_count → 1220，
+  P-01 note 的 Workflow×1/Scripts×2 → 实测 4/15，P-03 note 补四模块与实调用证据。
+  这些数字此前都是"文档比代码旧"，不是笔误。
+
+  ── [8] Git 首次提交 ──
+
+  git init（原本未初始化）。提交前先补 .gitignore 的四个缺口：*.db-shm/*.db-wal
+  （2.1MB checkpoint WAL 不被 *.db 覆盖）、*.log、第二个虚拟环境 .venv-1/
+  （原只忽略 .venv/）、data/real 与 data/real_delisted（20MB 联网抓取缓存，
+  可由 Scripts/fetch_*.py 重新生成，且无任何测试依赖）。data/sample 保留 ——
+  test_provider_factory 依赖它。用 git check-ignore 逐条验证后提交：
+  164 个文件 / 2.6MB / 1 个提交，.env、密钥、数据库、虚拟环境零进入。
+
+  ── 状态 ──────────────────────────────────────────────────────────────────
+
+  全量 1034 → 1220 passed, 1 skipped（唯一告警是 fastapi/testclient.py 的
+  StarletteDeprecationWarning，属三方库）。pyflakes exit 0、compileall exit 0、
+  check_frontend_syntax.js exit 0（2 个内联脚本块）。
+  LG-18 全网络封锁下 offline 20 只批量零网络错误。
+  E-01（Sharpe ≥ 0.5）仍未达标：离线合成样本均值 0.33、9/20 只达标；
+  真实十年窗口 +0.254（日历口径）。未改 Sharpe 定义、未注正漂移、未挑样本。
+
+  ── 追加：修掉一个间歇性假失败背后的真实计时缺陷 ──────────────────────────
+
+  全量套件第一次跑出 1 failed（test_chat_invokes_quote_tool_with_real_payload
+  断言 step["duration_ms"] > 0），单独重跑却通过。没有把它当"偶发抖动"放过，
+  而是量化了根因：Windows 上 time.monotonic() 底层是 GetTickCount64()，
+  实测分辨率 0.015625s（15.6ms）；perf_counter 是 QueryPerformanceCounter()，
+  分辨率 1e-7。构造一个真实耗时约 6.65ms 的操作测 60 次：monotonic 有 34/60
+  （57%）测出 0.0，perf_counter 0/60。
+
+  所以这不是测试问题，是**生产遥测缺陷**：API 返回的 tool_steps 里
+  duration_ms 有一半以上被记成 0，等于对外宣称"这次工具调用不耗时"。
+  同类缺陷还在 mcp/registry.py 的调用审计日志里 —— 审计日志把每次调用都记成
+  0 秒，会直接削弱它作为证据的价值（虽然当时没有任何测试断言它）。
+
+  改动：application_service.py 三处（_timed_agent、行情工具 success/error、
+  LangGraph 主流程总耗时）与 mcp/registry.py 三处，monotonic → perf_counter，
+  并在首处写明原因。harness.py 的 monotonic 未改：它测的是秒级重试/熔断冷却，
+  15.6ms 粒度不影响判定，且该文件属本次禁止改动范围。
+
+  验证：同一用例连跑 8 次全过；40 次真实调用 duration_ms 最小 12.14ms、
+  零个 0；全量 1220 passed / 1 skipped，pyflakes 与 compileall 均 exit 0。
+  附带发现两件事，一并记录：(1) 该用例走的是真实 DeepSeek API（HTTP 200），
+  说明出网可达 —— 但 AkShare 行情端点仍被重置，故"取不到实时行情"不能笼统
+  归因为"无网络"；后续临时验证统一强制 LLM_PROVIDER=mock，避免真实付费调用。
+  (2) 连打 40 次触发了 RateLimiter（20 次/分钟）与 CircuitBreaker（连续失败
+  3 次熔断），两道防护均按设计生效。

@@ -61,13 +61,15 @@ def _utc_now_iso() -> str:
 def _timed_agent(panel: ObservabilityPanel, agent_name: str, fn):
     """将图节点可调用对象包装为带 ObservabilityPanel 计时记录的版本。"""
     def wrapped(state: dict) -> dict:
-        t0 = time.monotonic()
+        # 用 perf_counter 而非 monotonic：见 _quote_step 处的说明，
+        # Windows 上 monotonic 粒度 15.6ms，会把快节点的耗时记成 0。
+        t0 = time.perf_counter()
         try:
             result = fn(state)
             panel.record_call(
                 agent_name=agent_name,
                 task=str(state.get("symbol", "")),
-                duration_s=time.monotonic() - t0,
+                duration_s=time.perf_counter() - t0,
                 success=True,
             )
             return result
@@ -75,7 +77,7 @@ def _timed_agent(panel: ObservabilityPanel, agent_name: str, fn):
             panel.record_call(
                 agent_name=agent_name,
                 task=str(state.get("symbol", "")),
-                duration_s=time.monotonic() - t0,
+                duration_s=time.perf_counter() - t0,
                 success=False,
             )
             raise
@@ -359,7 +361,14 @@ class ApplicationService:
                     )
                 )
             else:
-                t0 = time.monotonic()
+                # 用 perf_counter 而非 monotonic 测耗时：Windows 上
+                # time.monotonic() 走 GetTickCount64()，分辨率约 15.625ms，
+                # 实测一次约 6.65ms 的行情工具调用有 57% 概率被测成 0.0ms，
+                # 等于对外汇报「这次工具调用没花时间」——这是错误的可观测数据，
+                # 也会让 duration_ms>0 的断言随机失败。perf_counter 走
+                # QueryPerformanceCounter()，分辨率 1e-7s，同一操作 60 次测量
+                # 零次为 0。测短间隔必须用 perf_counter。
+                t0 = time.perf_counter()
                 provider = self.market_data if mode == "auto" else None
                 try:
                     quote_payload = get_latest_quote(
@@ -371,7 +380,7 @@ class ApplicationService:
                             input={"symbol": symbol, "data_mode": mode},
                             output=quote_payload.to_dict(),
                             status="success",
-                            duration_ms=round((time.monotonic() - t0) * 1000, 2),
+                            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
                         )
                     )
                 except QuoteToolError as exc:
@@ -383,7 +392,7 @@ class ApplicationService:
                             output=None,
                             status="error",
                             error=quote_error,
-                            duration_ms=round((time.monotonic() - t0) * 1000, 2),
+                            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
                         )
                     )
 
@@ -596,7 +605,7 @@ class ApplicationService:
         panel = obs_panel or ObservabilityPanel()
         run_id = uuid.uuid4().hex[:12]
         thread_id = uuid.uuid4().hex[:16]
-        t_start = time.monotonic()
+        t_start = time.perf_counter()
 
         # ── 执行 LangGraph 主流程 ───────────────────────────────────────────
         g = graph if graph is not None else self._securities_graph
@@ -607,7 +616,7 @@ class ApplicationService:
             thread_id=thread_id,
             data_mode=data_mode,
         )
-        duration = time.monotonic() - t_start
+        duration = time.perf_counter() - t_start
 
         # ── 查询真实 interrupt 状态（不依赖 state 字段推测）────────────────
         # LangGraph invoke 遇到 interrupt() 后返回当前状态，不抛异常。

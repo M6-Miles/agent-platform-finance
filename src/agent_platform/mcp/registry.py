@@ -148,7 +148,11 @@ class MCPToolRegistry:
             工具名未注册。这是调用方的编码错误，必须暴露而非静默降级。
         """
         spec = self.spec(name)   # 未注册 → 抛错（编码错误，不该静默）
-        started = time.monotonic()
+        # 用 perf_counter 而非 monotonic 计时：Windows 上 time.monotonic() 底层是
+        # GetTickCount64()，分辨率约 15.625ms，而绝大多数 MCP 调用（尤其离线阻断）
+        # 都在 1ms 以内，会被记成 duration_s=0.0。审计日志若显示"每一次调用都耗时
+        # 0 秒"，就失去了作为耗时证据的意义。perf_counter 分辨率 1e-7s。
+        started = time.perf_counter()
 
         # ── 离线硬阻断：函数体不执行 ──
         if self.offline and spec.requires_network:
@@ -165,7 +169,7 @@ class MCPToolRegistry:
             self.call_log.append(MCPCallRecord(
                 tool=name,
                 ok=False,
-                duration_s=time.monotonic() - started,
+                duration_s=time.perf_counter() - started,
                 blocked_offline=True,
                 error_type="OfflineModeBlocked",
             ))
@@ -185,7 +189,7 @@ class MCPToolRegistry:
             )
             logger.warning("[MCP] 工具 %s 抛出异常: %s", name, exc)
 
-        duration = time.monotonic() - started
+        duration = time.perf_counter() - started
         succeeded = is_ok(env)
         self.call_log.append(MCPCallRecord(
             tool=name,
