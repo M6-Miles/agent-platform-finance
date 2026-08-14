@@ -40,7 +40,7 @@
 - 连续对话上下文（Agent 加载历史消息）
 
 ### 测试覆盖
-- **1663 项测试收集，1662 项通过、1 项跳过、0 失败**（2026-08-15 实测）。准确数量仍以 `python -m pytest --collect-only` 的当前输出为准。测试覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、报告导出、真实 LLM 回放框架与天气 Demo。
+- **1667 项测试收集，1666 项通过、1 项跳过、0 失败**（2026-08-15 实测）。准确数量仍以 `python -m pytest --collect-only` 的当前输出为准。测试覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、报告导出、真实 LLM 回放框架与天气 Demo。
 
 ## 2. 项目不会做什么
 
@@ -573,7 +573,7 @@ result = resume_securities_analysis("approve", thread_id="my-analysis-001", grap
 | 组件 | 文件 | 说明 |
 |------|------|------|
 | 回测引擎 | `finance/backtesting.py` | Sharpe / 最大回撤 / 胜率 / 平均盈亏 / 整体盈亏比 / Profit Factor / 滑点 0.1% + 佣金 0.03% |
-| 可观测面板 | `core/observability.py` | SQLite 持久化；真实供应商 Token usage / 延迟 P50/P95 / Guardrail 触发率；`GET /observability` |
+| 可观测面板 | `core/observability.py` | SQLite 持久化；真实供应商 Token usage / 延迟 P50/P95 / Guardrail 触发率；图表按 Agent 汇总并使用自适应中文标签；`GET /observability` |
 | Evaluator Agent | `core/evaluator_agent.py` | 数据完整性 + 逻辑一致性 + 违禁词三维评分 0–100；已接入 LangGraph 主链、Pre-Flight 与可观测 trace |
 | MockBroker | `finance/mock_broker.py` | 本地纸面交易：限价单 / 市价单 / 撮合 / 持仓盈亏 / 止损止盈自动平仓；不连接真实券商 |
 | 长期模拟盘监控 | `finance/paper_trading_monitor.py` | 每日采集、SQLite 快照、跨重启恢复、同日幂等；不连接真实券商 |

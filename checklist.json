@@ -2,7 +2,7 @@
   "version": "3.1",
   "project": "通用Agent平台及证券金融分析应用",
   "updated_at": "2026-08-15",
-  "test_count": 1663,
+  "test_count": 1667,
   "_status_schema": {
     "implemented": "功能代码已实现（可单独调用/测试）",
     "integrated": "已接入主应用链路（FastAPI / 浏览器前端 / ApplicationService / 完整 Pipeline）",
@@ -133,7 +133,7 @@
       "implemented": true,
       "integrated": true,
       "acceptance_met": true,
-      "notes": "observability.py: 线程安全、SQLite持久化的ObservabilityPanel；GET/DELETE /observability 提供P50/P95延迟、失败率、Guardrail、重试和各Agent细分。Claude/DeepSeek读取供应商usage，前端展示真实Token；确定性Agent无LLM调用时Token如实为0。"
+      "notes": "observability.py: 线程安全、SQLite持久化的ObservabilityPanel；GET/DELETE /observability 提供P50/P95延迟、失败率、Guardrail、重试和各Agent细分。Claude/DeepSeek读取供应商usage，前端展示真实Token；确定性Agent无LLM调用时Token如实为0。前端图表按Agent汇总平均延迟、字符量和成功率，使用短中文标签、窄屏旋转和悬停完整名称，避免重复英文横轴重叠。"
     },
     {
       "id": "E-03",

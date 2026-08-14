@@ -892,19 +892,26 @@
       </div>
       <!-- Agent 明细表 -->
       <div class="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden mb-5">
-        <div class="px-4 py-3 bg-slate-50 border-b border-slate-100"><h3 class="text-sm font-medium text-slate-700">各 Agent 明细</h3></div>
-        <table class="w-full text-sm">
-          <thead><tr class="bg-slate-50 border-b border-slate-200">
+        <div class="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-3">
+          <h3 class="text-sm font-medium text-slate-700">各 Agent 明细</h3>
+          <span id="obs-agent-summary" class="text-xs text-slate-400">最多显示最近 100 条</span>
+        </div>
+        <div class="max-h-[420px] overflow-auto">
+        <table class="w-full min-w-[760px] text-sm">
+          <thead class="sticky top-0 z-10"><tr class="bg-slate-50 border-b border-slate-200">
+            <th class="px-4 py-3 text-left font-medium text-slate-600">调用 ID</th>
             <th class="px-4 py-3 text-left font-medium text-slate-600">Agent</th>
-            <th class="px-4 py-3 text-right font-medium text-slate-600">调用次数</th>
-            <th class="px-4 py-3 text-right font-medium text-slate-600">成功率</th>
-            <th class="px-4 py-3 text-right font-medium text-slate-600">平均延迟</th>
+            <th class="px-4 py-3 text-left font-medium text-slate-600">状态</th>
+            <th class="px-4 py-3 text-right font-medium text-slate-600">延迟</th>
             <th class="px-4 py-3 text-right font-medium text-slate-600">输入/输出字符</th>
+            <th class="px-4 py-3 text-right font-medium text-slate-600">护栏</th>
+            <th class="px-4 py-3 text-left font-medium text-slate-600">时间</th>
           </tr></thead>
           <tbody id="obs-agent-table" class="divide-y divide-slate-100">
-            <tr><td colspan="5" class="px-4 py-5 text-center text-slate-400 text-sm">暂无数据，运行深度投研后自动填充</td></tr>
+            <tr><td colspan="7" class="px-4 py-5 text-center text-slate-400 text-sm">暂无数据，运行深度投研后自动填充</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
       <!-- 图表 Tab -->
       <div class="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden mb-5">
@@ -1892,7 +1899,16 @@ function drawBarChart(svgId, labels, series, opts = {}) {
   const W = svg.parentElement.offsetWidth || 600;
   const H = parseInt(svg.getAttribute('height') || 180);
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  const pad = { top: 20, right: 20, bottom: 35, left: 50 };
+  if (!labels.length) {
+    svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" fill="#94A3B8" font-size="12" text-anchor="middle">暂无可绘制数据</text>`;
+    return;
+  }
+  const estimatedGroupWidth = (W - 70) / labels.length;
+  const rotateLabels = opts.rotateLabels ?? estimatedGroupWidth < 72;
+  const compactLabels = estimatedGroupWidth < 44;
+  const labelAngle = compactLabels ? -55 : -35;
+  const labelFontSize = compactLabels ? 8 : 9;
+  const pad = { top: 20, right: 20, bottom: compactLabels ? 70 : (rotateLabels ? 62 : 35), left: 50 };
   const cw = W - pad.left - pad.right;
   const ch = H - pad.top - pad.bottom;
   const n = labels.length;
@@ -1923,7 +1939,13 @@ function drawBarChart(svgId, labels, series, opts = {}) {
   // X 标签
   labels.forEach((lbl, i) => {
     const x = pad.left + i * groupW + groupW / 2;
-    html += `<text x="${x}" y="${H - 8}" fill="#94A3B8" font-size="9" text-anchor="middle">${lbl}</text>`;
+    const fullLabel = String(lbl);
+    const maxChars = opts.maxLabelChars || (rotateLabels ? 12 : 10);
+    const chars = Array.from(fullLabel);
+    const displayLabel = chars.length > maxChars ? `${chars.slice(0, maxChars - 1).join('')}…` : fullLabel;
+    const transform = rotateLabels ? ` transform="rotate(${labelAngle} ${x} ${H - 8})"` : '';
+    const anchor = rotateLabels ? 'end' : 'middle';
+    html += `<text x="${x}" y="${H - 8}" fill="#64748B" font-size="${labelFontSize}" text-anchor="${anchor}"${transform}><title>${escapeHtml(fullLabel)}</title>${escapeHtml(displayLabel)}</text>`;
   });
   svg.innerHTML = html;
 }
@@ -4485,7 +4507,10 @@ function addObsCall(agentName, latency, success, inputSize = 0, outputSize = 0, 
   // 刷新表格
   const tbody = document.getElementById('obs-agent-table');  // 修正：obs-agent-body → obs-agent-table
   if (!tbody) return;
-  tbody.innerHTML = calls.slice(0,20).map((c,i) =>
+  const visibleCalls = calls.slice(0, 100);
+  const summary = document.getElementById('obs-agent-summary');
+  if (summary) summary.textContent = `显示最近 ${visibleCalls.length} 条 / 共 ${calls.length} 条`;
+  tbody.innerHTML = visibleCalls.map((c,i) =>
     `<tr class="${i%2===0?'':'bg-slate-50/50'}">
       <td class="px-4 py-2 text-xs font-mono text-slate-500">${c.id}</td>
       <td class="px-4 py-2 text-sm font-medium text-slate-700">${c.agent}</td>
@@ -4537,7 +4562,10 @@ async function loadObservability() {
   _set('obs-retries', Number(summary.avg_retries || 0).toFixed(2));
 
   const tbody = document.getElementById('obs-agent-table');
-  if (tbody) tbody.innerHTML = obsState.calls.length ? obsState.calls.map((call, index) => `
+  const visibleCalls = obsState.calls.slice(0, 100);
+  const tableSummary = document.getElementById('obs-agent-summary');
+  if (tableSummary) tableSummary.textContent = `显示最近 ${visibleCalls.length} 条 / 共 ${summary.total_calls || obsState.calls.length} 条`;
+  if (tbody) tbody.innerHTML = visibleCalls.length ? visibleCalls.map((call, index) => `
     <tr class="${index % 2 === 0 ? '' : 'bg-slate-50/50'}">
       <td class="px-4 py-2 text-xs font-mono text-slate-500">${escapeHtml(call.id)}</td>
       <td class="px-4 py-2 text-sm font-medium text-slate-700">${escapeHtml(call.agent)}</td>
@@ -4826,13 +4854,53 @@ function switchObsTab(tab) {
   else if (tab === 'success') drawObsSuccessChart();
 }
 
+const OBS_AGENT_LABELS = Object.freeze({
+  technical_agent: '技术分析',
+  fundamental_agent: '基本面',
+  industry_agent: '行业分析',
+  market_regime_agent: '大盘环境',
+  synthesis_agent: '综合研判',
+  trader_agent: '交易建议',
+  risk_manager: '风险管理',
+  evaluator_agent: '质量评估',
+  trading_harness: '交易预检',
+  chat_agent: 'Agent 对话',
+});
+
+function obsAgentLabel(agentName) {
+  const normalized = String(agentName || 'unknown');
+  return OBS_AGENT_LABELS[normalized] || normalized.replaceAll('_', ' ');
+}
+
+function aggregateObsCalls(calls) {
+  const groups = new Map();
+  calls.forEach(call => {
+    const name = String(call.agent || 'unknown');
+    if (!groups.has(name)) {
+      groups.set(name, { name, count: 0, latency: 0, inputSize: 0, outputSize: 0, success: 0 });
+    }
+    const group = groups.get(name);
+    group.count += 1;
+    group.latency += Number(call.latency) || 0;
+    group.inputSize += Number(call.inputSize) || 0;
+    group.outputSize += Number(call.outputSize) || 0;
+    group.success += call.success ? 1 : 0;
+  });
+  return [...groups.values()].map(group => ({
+    name: group.name,
+    label: obsAgentLabel(group.name),
+    avgLatency: group.latency / group.count,
+    avgInputSize: group.inputSize / group.count,
+    avgOutputSize: group.outputSize / group.count,
+    successRate: group.success / group.count * 100,
+  }));
+}
+
 function drawObsLatencyChart() {
-  const calls = obsState.calls.slice(-20);
-  const lbls = calls.map((c, i) => c.agent || `call-${i + 1}`);
-  const vals = calls.map(c => c.latency);
-  drawBarChart('svg-obs-latency', lbls, [
-    { label:'延迟(ms)', values:vals, color:'#3B82F6' }
-  ], { unit:'ms' });
+  const groups = aggregateObsCalls(obsState.calls);
+  drawBarChart('svg-obs-latency', groups.map(group => group.label), [
+    { label:'平均延迟(ms)', values:groups.map(group => group.avgLatency), color:'#3B82F6' }
+  ], { unit:'ms', maxLabelChars: 8 });
 }
 
 function drawObsGuardrailChart() {
@@ -4846,27 +4914,23 @@ function drawObsGuardrailChart() {
 }
 
 function drawObsTokenChart() {
-  const calls = obsState.calls.slice(-20);
-  const labels = calls.map((c, i) => c.agent || `call-${i + 1}`);
-  const inp = calls.map(c => c.inputSize);
-  const out = calls.map(c => c.outputSize);
-  drawBarChart('svg-obs-tokens', labels, [          // 修正：svg-obs-tokens
-    { label:'输入 Token', values:inp, color:'#6366F1' },
-    { label:'输出 Token', values:out, color:'#F59E0B' },
-  ]);
+  const groups = aggregateObsCalls(obsState.calls);
+  const labels = groups.map(group => group.label);
+  drawBarChart('svg-obs-tokens', labels, [
+    { label:'平均输入字符', values:groups.map(group => group.avgInputSize), color:'#6366F1' },
+    { label:'平均输出字符', values:groups.map(group => group.avgOutputSize), color:'#F59E0B' },
+  ], { maxLabelChars: 8 });
 }
 
 function drawObsSuccessChart() {
-  const labels = [...new Set(obsState.calls.map(c => c.agent))];
-  const success = labels.map(name => {
-    const calls = obsState.calls.filter(c => c.agent === name);
-    return calls.length ? calls.filter(c => c.success).length / calls.length * 100 : 0;
-  });
+  const groups = aggregateObsCalls(obsState.calls);
+  const labels = groups.map(group => group.label);
+  const success = groups.map(group => group.successRate);
   const fail = success.map(value => 100 - value);
   drawBarChart('svg-obs-success', labels, [
     { label:'成功率%', values:success, color:'#10B981' },
     { label:'失败率%', values:fail,    color:'#EF4444' },
-  ], { unit:'%' });
+  ], { unit:'%', maxLabelChars: 8 });
 }
 
 function initObsCharts() {
