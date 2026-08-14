@@ -1344,7 +1344,7 @@ class TestReport:
         try:
             proc = subprocess.run(
                 [sys.executable, str(ROOT / "Scripts" / "compare_strategies.py"),
-                 "--offline", "--limit", "2",
+                 "--offline", "--data", "sample", "--limit", "2",
                  "--json-out", str(jp), "--md-out", str(mp)],
                 capture_output=True, text=True, encoding="utf-8", env=env,
                 cwd=str(ROOT), timeout=900,
@@ -1408,8 +1408,8 @@ class TestReport:
             assert "BELOW 0.5" in md
         assert v["result"] in _proc.stdout
 
-    def test_report_contains_walk_forward_folds(self, cli_output):
-        """报告必须含逐折 walk-forward 结果与六个边界。"""
+    def test_report_contains_folds_or_honest_unavailable(self, cli_output):
+        """数据足够时报告六边界；样例不足时必须明确 unavailable。"""
         _proc, data, _md = cli_output
         wf = data["walk_forward"]
         assert wf["per_symbol"]
@@ -1420,7 +1420,13 @@ class TestReport:
                             "validation_end", "test_start", "test_end"):
                     assert key in f
                 found = True
-        assert found, "报告里没有任何折"
+        if wf["n_available"]:
+            assert found, "有可用 walk-forward 标的却没有任何折"
+        else:
+            assert not found
+            assert wf["n_unavailable"] == len(wf["per_symbol"])
+            assert wf["unavailable_reasons"]
+            assert all(not item["available"] for item in wf["per_symbol"])
         assert "out_of_sample_test_sharpe" in wf
 
     def test_report_contains_limitations_and_disclaimer(self, cli_output):

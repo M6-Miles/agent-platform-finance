@@ -9,14 +9,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # 自动加载项目根目录的 .env 文件（如果存在）
 _env_path = PROJECT_ROOT / ".env"
-if _env_path.exists():
-    try:
-        from dotenv import load_dotenv
-        # Explicit process settings must win over local defaults.  This is
-        # required for safe test/deployment overrides such as LLM_PROVIDER=mock.
-        load_dotenv(_env_path, override=False)
-    except ImportError:
-        pass  # python-dotenv 不可用时不报错
+try:
+    from dotenv import load_dotenv
+    # load_dotenv safely returns False when the file is absent. Calling it in
+    # both cases keeps local and clean CI environments behaviorally identical.
+    # Explicit process settings must always win over local defaults.
+    load_dotenv(_env_path, override=False)
+except ImportError:
+    pass  # python-dotenv 不可用时不报错
 DEFAULT_APP_NAME = "通用 Agent 平台及证券金融分析应用"
 DEFAULT_SAMPLE_PRICES_CSV = PROJECT_ROOT / "data" / "sample" / "prices.csv"
 DEFAULT_SQLITE_PATH = PROJECT_ROOT / "data" / "app.sqlite3"
