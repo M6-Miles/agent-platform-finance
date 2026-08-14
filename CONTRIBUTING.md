@@ -5,8 +5,10 @@
 需要 Python 3.11 或更高版本。创建虚拟环境后安装开发依赖：
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,akshare,llm]"
 ```
+
+完整离线测试包含 AkShare 兼容层和真实 Provider 的错误映射测试，因此测试环境需要安装对应 SDK；测试仍使用 monkeypatch、Mock Provider 和空 API Key，不会发起真实模型调用。
 
 默认使用 `LLM_PROVIDER=mock` 和 `MARKET_DATA_PROVIDER=sample`。除非测试明确标记为 `online`，否则不得依赖外部网络、真实 API Key 或产生费用的模型调用。
 

@@ -45,6 +45,13 @@ def test_linux_deployment_scripts_are_forced_to_lf():
     assert "*.sh text eol=lf" in attributes
 
 
+def test_github_ci_installs_dependencies_used_by_offline_tests():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert '.[dev,akshare,llm]' in workflow
+    assert "LLM_PROVIDER: mock" in workflow
+    assert 'DEEPSEEK_API_KEY: ""' in workflow
+
+
 def test_nginx_does_not_expose_upstream_directly():
     nginx = (ROOT / "deploy/nginx-agent-platform.conf.template").read_text(
         encoding="utf-8"
