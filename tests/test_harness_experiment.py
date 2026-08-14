@@ -46,6 +46,18 @@ def test_experiment_result_markdown():
     assert "Harness 有效性实验报告" in md
     assert "幻觉拦截率" in md or "幻觉通过率" in md
     assert "100%" in md  # 无 Harness 时幻觉通过率
+    assert "模拟无效下游调用数" in md
+    assert "端到端正确处理率" in md
+
+
+def test_experiment_quantifies_invalid_calls_and_e2e_rate():
+    result = run_harness_effectiveness_experiment()
+
+    assert result.invalid_calls_no_harness == result.hallucination_count
+    assert result.invalid_calls_with_harness == 0
+    assert result.invalid_call_reduction_rate == 1.0
+    assert result.e2e_correct_rate_no_harness == result.normal_count / result.total_samples
+    assert result.e2e_correct_rate_with_harness == 1.0
 
 
 def test_experiment_custom_samples_all_normal():

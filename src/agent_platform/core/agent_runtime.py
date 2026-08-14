@@ -12,6 +12,8 @@ class AgentRunResult:
     answer: str
     steps: tuple[ToolExecutionResult, ...]
     provider: str
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class AgentRuntime:
@@ -38,14 +40,20 @@ class AgentRuntime:
         messages = list(history)
         messages.append(ChatMessage(role="user", content=user_message.strip()))
         steps: list[ToolExecutionResult] = []
+        input_tokens = 0
+        output_tokens = 0
 
         for _ in range(self.max_steps):
             reply = self.provider.generate(messages, self.tools.descriptions())
+            input_tokens += reply.input_tokens
+            output_tokens += reply.output_tokens
             if not reply.tool_calls:
                 return AgentRunResult(
                     answer=reply.text,
                     steps=tuple(steps),
                     provider=self.provider.name,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
                 )
 
             # 将助手这一轮的回复加入对话历史，再追加工具结果，
@@ -66,4 +74,6 @@ class AgentRuntime:
             answer="Agent 达到最大工具调用步数，已安全停止。",
             steps=tuple(steps),
             provider=self.provider.name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )

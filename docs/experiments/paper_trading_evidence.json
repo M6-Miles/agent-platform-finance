@@ -1,0 +1,152 @@
+{
+  "evidence_type": "natural_daily_real_market_paper_trading",
+  "acceptance_rule": "7-14个不同真实交易日，且每日报价均为auto/live并带source",
+  "job": {
+    "id": "39a5e805-aa32-4cbc-a5d1-d46d7397552a",
+    "account_id": "10e5a2b7-8a35-4746-86bb-e0c1a295abae",
+    "symbols": [
+      "000001",
+      "600519"
+    ],
+    "data_mode": "auto",
+    "run_time": "15:10",
+    "enabled": true,
+    "created_at": "2026-08-14T10:36:43+08:00",
+    "updated_at": "2026-08-14T10:36:43+08:00",
+    "broker_kind": "MockBroker(本地模拟撮合，无真实券商连接)",
+    "summary": {
+      "total_runs": 1,
+      "completed_candidate_days": 1,
+      "valid_real_evidence_days": 1,
+      "first_valid_evidence_date": "2026-08-14",
+      "last_valid_evidence_date": "2026-08-14",
+      "calendar_span_days": 1,
+      "missing_candidate_dates": [],
+      "skipped_non_trading_days": 0,
+      "failed_or_partial_runs": 0,
+      "target_min_days": 7,
+      "target_max_days": 14,
+      "remaining_min_days": 6,
+      "remaining_target_days": 13,
+      "minimum_acceptance_met": false,
+      "full_target_met": false,
+      "evidence_status": "scheduler_disabled",
+      "latest_run": {
+        "id": "25c29b87-7fb3-4014-9822-ed63c9d5b37b",
+        "job_id": "39a5e805-aa32-4cbc-a5d1-d46d7397552a",
+        "trading_date": "2026-08-14",
+        "started_at": "2026-08-14T10:36:43+08:00",
+        "finished_at": "2026-08-14T10:36:46+08:00",
+        "status": "completed",
+        "snapshot": {
+          "recorded_at": "2026-08-14T10:36:46+08:00",
+          "trading_date": "2026-08-14",
+          "account_id": "10e5a2b7-8a35-4746-86bb-e0c1a295abae",
+          "symbols": [
+            "000001",
+            "600519"
+          ],
+          "data_mode": "auto",
+          "cash": 1000000.0,
+          "portfolio_value": 1000000.0,
+          "positions": [],
+          "orders": [],
+          "trades": [],
+          "quotes": {
+            "000001": {
+              "symbol": "000001",
+              "name": "平安银行",
+              "price": 11.17,
+              "prev_close": 11.25,
+              "change_pct": -0.71,
+              "market": "深交所",
+              "source": "腾讯证券公开行情快照",
+              "updated_at": "2026-08-14T10:36:45",
+              "data_status": "live",
+              "fallback_reason": null,
+              "quote_cache_hit": false,
+              "quote_age_s": 0.0
+            },
+            "600519": {
+              "symbol": "600519",
+              "name": "贵州茅台",
+              "price": 1352.24,
+              "prev_close": 1355.29,
+              "change_pct": -0.23,
+              "market": "上交所",
+              "source": "腾讯证券公开行情快照",
+              "updated_at": "2026-08-14T10:36:43",
+              "data_status": "live",
+              "fallback_reason": null,
+              "quote_cache_hit": false,
+              "quote_age_s": 0.0
+            }
+          },
+          "quote_errors": {},
+          "broker_kind": "MockBroker(本地模拟撮合，无券商连接)"
+        },
+        "error": null
+      },
+      "next_run_at": "2026-08-14T15:10:00+08:00",
+      "calendar_basis": "weekday_candidate_only"
+    }
+  },
+  "latest_run": {
+    "id": "25c29b87-7fb3-4014-9822-ed63c9d5b37b",
+    "job_id": "39a5e805-aa32-4cbc-a5d1-d46d7397552a",
+    "trading_date": "2026-08-14",
+    "started_at": "2026-08-14T10:36:43+08:00",
+    "finished_at": "2026-08-14T10:36:46+08:00",
+    "status": "completed",
+    "snapshot": {
+      "recorded_at": "2026-08-14T10:36:46+08:00",
+      "trading_date": "2026-08-14",
+      "account_id": "10e5a2b7-8a35-4746-86bb-e0c1a295abae",
+      "symbols": [
+        "000001",
+        "600519"
+      ],
+      "data_mode": "auto",
+      "cash": 1000000.0,
+      "portfolio_value": 1000000.0,
+      "positions": [],
+      "orders": [],
+      "trades": [],
+      "quotes": {
+        "000001": {
+          "symbol": "000001",
+          "name": "平安银行",
+          "price": 11.17,
+          "prev_close": 11.25,
+          "change_pct": -0.71,
+          "market": "深交所",
+          "source": "腾讯证券公开行情快照",
+          "updated_at": "2026-08-14T10:36:45",
+          "data_status": "live",
+          "fallback_reason": null,
+          "quote_cache_hit": false,
+          "quote_age_s": 0.0
+        },
+        "600519": {
+          "symbol": "600519",
+          "name": "贵州茅台",
+          "price": 1352.24,
+          "prev_close": 1355.29,
+          "change_pct": -0.23,
+          "market": "上交所",
+          "source": "腾讯证券公开行情快照",
+          "updated_at": "2026-08-14T10:36:43",
+          "data_status": "live",
+          "fallback_reason": null,
+          "quote_cache_hit": false,
+          "quote_age_s": 0.0
+        }
+      },
+      "quote_errors": {},
+      "broker_kind": "MockBroker(本地模拟撮合，无券商连接)"
+    },
+    "error": null,
+    "deduplicated": false
+  },
+  "honesty_note": "离线、降级、失败、非交易日和同日重复运行均不增加有效证据天数"
+}

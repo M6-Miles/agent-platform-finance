@@ -31,6 +31,7 @@ from agent_platform.finance.dcf_valuation import (
     DCFAssumptions,
     DCFResult,
     beta_from_volatility,
+    compute_cost_of_equity,
     compute_wacc,
     run_dcf,
     sustainable_growth,
@@ -154,6 +155,22 @@ class TestWACC:
         a = DCFAssumptions(beta=1.4)
         r = run_dcf(**BASE, assumptions=a)
         assert r.wacc == pytest.approx(compute_wacc(a), rel=1e-12)
+
+    def test_wacc_applies_debt_weight_and_tax_shield(self):
+        a = DCFAssumptions(
+            risk_free_rate=0.03,
+            equity_risk_premium=0.06,
+            beta=1.2,
+            debt_weight=0.4,
+            pretax_cost_of_debt=0.05,
+            corporate_tax_rate=0.25,
+        )
+        expected = 0.6 * compute_cost_of_equity(a) + 0.4 * 0.05 * (1 - 0.25)
+        assert compute_wacc(a) == pytest.approx(expected)
+
+    def test_invalid_debt_weight_rejected(self):
+        with pytest.raises(ValueError, match="debt_weight"):
+            compute_wacc(DCFAssumptions(debt_weight=1.1))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -379,6 +396,13 @@ class TestSerialization:
         assert d["assumptions"]["beta"] == pytest.approx(1.3)
         assert "risk_free_rate" in d["assumptions"]
         assert "payout_ratio" in d["assumptions"]
+
+    def test_proxy_is_never_labelled_as_full_financial_statement_dcf(self):
+        d = run_dcf(**BASE).to_dict()
+        assert d["model_type"] == "earnings_to_fcff_proxy"
+        assert d["confidence_level"] == "low"
+        assert "非完整现金流量表" in d["source"]
+        assert d["limitations"]
 
     def test_formula_is_explained(self):
         """可解释性要求：公式必须以文本形式给出。"""

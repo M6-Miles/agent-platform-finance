@@ -164,12 +164,16 @@ def analyze_industry(symbol: str, force_offline: bool = False) -> IndustryResult
     else:
         # auto 模式：经 MCP 调真实数据源；任一环节失败都不编造，降级并标注原因
         akshare_success = False
+        industry_identity_success = False
+        industry_source = ""
         failures: list[str] = []
 
         # 1. 个股所属行业
         ind_env = reg.call("get_stock_industry", symbol=symbol)
         if ind_env["ok"]:
             industry_name = str(ind_env["data"]["industry"] or industry_name)
+            industry_identity_success = True
+            industry_source = str(ind_env.get("source") or "MCP:get_stock_industry")
         else:
             failures.append(f"行业识别({ind_env['error_type']})")
 
@@ -214,16 +218,24 @@ def analyze_industry(symbol: str, force_offline: bool = False) -> IndustryResult
         else:
             failures.append(f"行业资金流({flow_env['error_type']})")
 
-        # 未取到真实数据 → 降级样例，明确标注，绝不把样例当实时
+        # 已取得真实行业身份时，即使资金流不可用也保留真实结果；缺失字段明确留空。
+        # 只有行业身份本身也失败时才降级样例，避免一项上游故障覆盖全部真实证据。
         if not akshare_success:
-            logger.warning("[IndustryAgent] MCP 行业数据不可用，降级样例: %s", failures)
-            sample = get_sample_industry(symbol)
-            industry_name = sample["industry_name"]
-            fund_flow = sample["fund_flow_3d_cny"]
-            top_stocks = sample["top_stocks"]
-            source = "降级样例数据（MCP 行业数据不可用）"
-            data_status = "fallback"
-            fallback_reason = "；".join(failures) or "AkShare行业数据不可用"
+            fallback_reason = "；".join(failures) or "行业资金流不可用"
+            if industry_identity_success:
+                logger.warning("[IndustryAgent] 行业身份可用，附加数据缺失: %s", failures)
+                source = f"MCP:get_stock_industry ← {industry_source}"
+                data_status = "live"
+                fund_flow = None
+                top_stocks = []
+            else:
+                logger.warning("[IndustryAgent] MCP 行业数据不可用，降级样例: %s", failures)
+                sample = get_sample_industry(symbol)
+                industry_name = sample["industry_name"]
+                fund_flow = sample["fund_flow_3d_cny"]
+                top_stocks = sample["top_stocks"]
+                source = "降级样例数据（MCP 行业数据不可用）"
+                data_status = "fallback"
 
         # 在线模式使用动态景气度判断
         signal, note = _prosperity_from_fund_flow(fund_flow)

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import traceback
 from typing import Sequence
 
 import httpx
@@ -20,6 +19,11 @@ from agent_platform.core.llm_provider import (
     ModelReply,
     ToolCall,
     ToolDescription,
+    LLMAuthenticationError,
+    LLMInvalidRequestError,
+    LLMNetworkError,
+    LLMRateLimitError,
+    LLMServerError,
 )
 
 log = logging.getLogger(__name__)
@@ -51,10 +55,18 @@ class DeepSeekLLMProvider:
     def name(self) -> str:
         return f"deepseek/{self._model}"
 
+    @property
+    def supports_json_mode(self) -> bool:
+        """标记该适配器支持 OpenAI 兼容的 JSON 输出约束。"""
+        # DeepSeek 的历史 ``deepseek-chat`` 别名在部分账户/网关上会对
+        # response_format 返回 400；只有明确的 V4 模型才启用该参数。
+        return self._model.startswith("deepseek-v4")
+
     def generate(
         self,
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDescription],
+        response_format: dict[str, str] | None = None,
     ) -> ModelReply:
         if not messages:
             return ModelReply(text="请先输入一个问题。")
@@ -107,6 +119,8 @@ class DeepSeekLLMProvider:
             "max_tokens": self._max_tokens,
             "messages": openai_msgs,
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
 
         if tools:
             payload["tools"] = [
@@ -151,30 +165,33 @@ class DeepSeekLLMProvider:
 
             data: dict = resp.json()
 
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            log.warning("DeepSeek HTTP failure status=%d", status)
+            if status in (401, 403):
+                raise LLMAuthenticationError("LLM 凭证无效或无权限") from exc
+            if status == 429:
+                raise LLMRateLimitError("LLM 请求频率受限") from exc
+            if 500 <= status <= 599:
+                raise LLMServerError("LLM 服务暂时不可用") from exc
+            raise LLMInvalidRequestError("LLM 请求无效") from exc
+        except (httpx.TimeoutException, TimeoutError) as exc:
+            log.warning("DeepSeek request timed out")
+            raise LLMNetworkError("LLM 网络请求超时") from exc
+        except (httpx.NetworkError, ConnectionError) as exc:
+            log.warning("DeepSeek network failure type=%s", type(exc).__name__)
+            raise LLMNetworkError("LLM 网络连接失败") from exc
+        except (ValueError, json.JSONDecodeError) as exc:
+            log.warning("DeepSeek response parsing failed")
+            raise LLMInvalidRequestError("LLM 响应格式无效") from exc
         except Exception as exc:
-            # 安全格式化异常消息：先 encode 再 decode，防止二次 UnicodeEncodeError
-            exc_str = str(exc).encode("utf-8", errors="replace").decode("utf-8")
-            tb_str = traceback.format_exc().encode("utf-8", errors="replace").decode("utf-8")
-            log.error("DeepSeek API error:\n%s", tb_str)
-            # 注意：Streamlit st.markdown() 默认过滤 <details> HTML 标签，
-            # 改用纯 Markdown 代码块，确保 traceback 在 UI 中可见。
-            error_text = (
-                f"❌ **DeepSeek API 调用失败**\n\n"
-                f"> {exc_str}\n\n"
-                "**请检查：**\n"
-                "1. `.env` 中 `DEEPSEEK_API_KEY` 已替换为真实 key（非 `你的key` 占位符）\n"
-                "2. key 正确后 **Ctrl+S 保存** `.env`，再重启 Streamlit\n"
-                "3. 网络是否通畅，API 余额是否充足\n\n"
-                "**完整错误堆栈（调试用）：**\n\n"
-                f"```\n{tb_str}\n```\n\n"
-                "_你也可以在 `.env` 中将 `LLM_PROVIDER` 改回 `mock` 继续使用离线演示。_"
-            )
-            return ModelReply(text=error_text)
+            log.warning("DeepSeek unexpected failure type=%s", type(exc).__name__)
+            raise LLMInvalidRequestError("LLM 调用失败") from exc
 
         # ── 解析响应 ──────────────────────────────────────────────────────────
         choices = data.get("choices") or []
         if not choices:
-            return ModelReply(text="DeepSeek 返回了空响应，请稍后重试。")
+            raise LLMInvalidRequestError("LLM 响应缺少有效结果")
 
         msg_data: dict = choices[0].get("message", {})
 
@@ -195,4 +212,10 @@ class DeepSeekLLMProvider:
         if not text and tool_calls:
             text = "正在调用工具分析…"
 
-        return ModelReply(text=text, tool_calls=tuple(tool_calls))
+        usage = data.get("usage") or {}
+        return ModelReply(
+            text=text,
+            tool_calls=tuple(tool_calls),
+            input_tokens=int(usage.get("prompt_tokens") or 0),
+            output_tokens=int(usage.get("completion_tokens") or 0),
+        )

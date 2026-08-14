@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
@@ -77,7 +78,67 @@ class FundamentalResult:
             "disclaimer": self.disclaimer,
             "data_status": self.data_status,
             "fallback_reason": self.fallback_reason,
+            # 字段级状态映射：每个关键指标的来源与可用性，前端/下游可直接消费
+            "field_status": self.field_status(),
         }
+
+    def field_status(self) -> dict[str, dict[str, str]]:
+        """
+        返回每个关键财务字段的来源与状态映射。
+
+        结构：{字段名: {"status": "live|offline_sample|fallback|unavailable", "source": "...", "note": "..."}}
+
+        规则：
+        - PE_TTM / PB / 总市值：随整体 data_status，但若值为 None 则单独标 unavailable。
+        - ROE / 资产负债率：可能单独缺失（AkShare get_financial_indicator EmptyResult），
+          此时不能把整体标成 live，而是这两个字段单独标 unavailable。
+        - DCF：applicable=True 时 live/offline，否则 not_applicable。
+        """
+        base_status = self.data_status or "unavailable"
+
+        def _field(value: Any, extra_note: str = "") -> dict[str, str]:
+            if value is None:
+                return {
+                    "status": "unavailable",
+                    "source": self.source,
+                    "note": extra_note or "上游未返回该字段",
+                }
+            return {
+                "status": base_status,
+                "source": self.source,
+                "note": extra_note,
+            }
+
+        fs: dict[str, dict[str, str]] = {
+            "pe_ttm": _field(self.pe_ttm),
+            "pb": _field(self.pb),
+            "total_market_value_cny": _field(self.total_market_value_cny),
+        }
+
+        # ROE 与资产负债率可能单独缺失（财务指标接口独立于估值快照）
+        roe_note = ""
+        debt_note = ""
+        if self.fallback_reason and ("ROE" in self.fallback_reason or "资产负债率" in self.fallback_reason):
+            roe_note = self.fallback_reason
+            debt_note = self.fallback_reason
+        fs["roe_pct"] = _field(self.roe_pct, roe_note)
+        fs["debt_to_asset_pct"] = _field(self.debt_to_asset_pct, debt_note)
+
+        if self.dcf is None:
+            fs["dcf"] = {"status": "unavailable", "source": self.source, "note": "DCF 计算失败"}
+        elif not self.dcf.get("applicable"):
+            fs["dcf"] = {
+                "status": "not_applicable",
+                "source": self.source,
+                "note": str(self.dcf.get("reason_not_applicable") or "不满足 DCF 适用条件"),
+            }
+        else:
+            fs["dcf"] = {
+                "status": base_status,
+                "source": self.source,
+                "note": "proxy FCFF 口径，基于 PE/PB/市值反推，非完整企业级报表",
+            }
+        return fs
 
     def to_markdown(self) -> str:
         pe_str = f"{self.pe_ttm:.1f}" if self.pe_ttm is not None else "N/A"
@@ -243,7 +304,12 @@ def analyze_fundamental(symbol: str, name: str = "", force_offline: bool = False
         note = sample.get("valuation_note", "")
         source = f"内置样例数据（MCP:{env['tool']}）"
     else:
-        val_env = registry.call("get_valuation_metrics", symbol=symbol)
+        # 两个公共数据接口互不依赖，并行拉取可将总等待从二者相加降为取较慢者。
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="fundamental") as pool:
+            val_future = pool.submit(registry.call, "get_valuation_metrics", symbol=symbol)
+            ind_future = pool.submit(registry.call, "get_financial_indicator", symbol=symbol)
+            val_env = val_future.result()
+            ind_env = ind_future.result()
         if val_env["ok"]:
             d = val_env["data"] or {}
             pe = d.get("pe_ttm")
@@ -255,7 +321,6 @@ def analyze_fundamental(symbol: str, name: str = "", force_offline: bool = False
 
             # ROE 与资产负债率来自财务指标接口，失败时保持 None 并记录原因，
             # 绝不用市场倍数反推的近似值冒充真实财报数字。
-            ind_env = registry.call("get_financial_indicator", symbol=symbol)
             if ind_env["ok"]:
                 ind = ind_env["data"] or {}
                 roe = ind.get("roe_pct")

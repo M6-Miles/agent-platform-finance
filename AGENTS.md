@@ -16,7 +16,6 @@
 project/
 ├── SPEC.md                    # 项目成功标准（验收 checklist）
 ├── AGENTS.md                  # 本文件，项目结构索引
-├── progress.txt               # 进度日志（人工 + 自动追加）
 ├── checklist.json             # 功能清单（结构化状态追踪）
 │
 ├── Rule/                      # 行为边界规则
@@ -107,4 +106,4 @@ project/
 
 ## 当前进度
 
-详见 `progress.txt` 和 `checklist.json`。
+验收状态以 `PROJECT_STATUS.md`、`checklist.json` 和实际测试结果为准。

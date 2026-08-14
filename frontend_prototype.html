@@ -101,10 +101,11 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">密码</label>
-            <input id="inp-password" type="password" placeholder="请输入密码" value="admin123"
+            <input id="inp-password" type="password" placeholder="请输入密码" autocomplete="current-password"
               class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
           </div>
-          <button onclick="doLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2.5 rounded-lg text-sm transition-colors mt-2">▶ 进入系统</button>
+          <button id="login-submit-btn" onclick="doLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2.5 rounded-lg text-sm transition-colors mt-2">进入系统</button>
+          <p id="login-error" class="text-xs text-red-600 mt-2" aria-live="polite"></p>
         </div>
       </div>
       <!-- 注册表单 -->
@@ -112,21 +113,26 @@
         <div class="space-y-4">
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">用户名</label>
-            <input type="text" placeholder="设置用户名" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
+            <input id="reg-username" type="text" placeholder="设置用户名" autocomplete="username"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">邮箱 <span class="text-slate-400">(选填)</span></label>
-            <input type="email" placeholder="your@email.com" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
+            <input id="reg-email" type="email" placeholder="your@email.com" autocomplete="email"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">密码</label>
-            <input type="password" placeholder="设置密码" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
+            <input id="reg-password" type="password" placeholder="设置密码" autocomplete="new-password"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">确认密码</label>
-            <input type="password" placeholder="再次输入密码" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
+            <input id="reg-confirm-password" type="password" placeholder="再次输入密码" autocomplete="new-password"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
           </div>
-          <button onclick="doLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2.5 rounded-lg text-sm transition-colors mt-2">创建账号</button>
+          <button id="register-submit-btn" onclick="doRegister()" class="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors mt-2">创建账号</button>
+          <p id="register-error" class="text-xs text-red-600 mt-2" aria-live="polite"></p>
         </div>
       </div>
     </div>
@@ -185,6 +191,9 @@
       <button onclick="navigate('obs')" id="nav-obs" class="nav-item w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2.5 text-slate-400">
         <span>🔭</span> 可观测性
       </button>
+      <button onclick="navigate('weather')" id="nav-weather" class="nav-item w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2.5 text-slate-400">
+        <span>🌤️</span> 天气分析
+      </button>
     </nav>
   </div>
   <!-- 3. 数据源切换 -->
@@ -215,7 +224,7 @@
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2.5">
         <div id="user-avatar" class="w-8 h-8 bg-slate-600 rounded-full flex items-center justify-center text-xs font-semibold text-white">A</div>
-        <div><p id="user-name" class="text-sm text-white font-medium">Admin</p><p class="text-xs text-slate-500">本地用户</p></div>
+        <div><p id="user-name" class="text-sm text-white font-medium">未登录</p><p id="user-role" class="text-xs text-slate-500">当前用户</p></div>
       </div>
       <button onclick="toggleUserMenu()" class="p-1.5 hover:bg-slate-700 rounded transition-colors text-slate-400 hover:text-white">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -223,6 +232,7 @@
     </div>
     <div id="user-menu" class="hidden absolute bottom-14 left-3 right-3 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-50">
       <button onclick="openProfileModal()" class="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors">⚙️ 个人设置</button>
+      <button id="admin-users-menu-btn" onclick="openAdminUsersModal()" class="hidden w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors">用户管理</button>
       <div class="border-t border-slate-700"></div>
       <button onclick="doLogout()" class="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-slate-700 transition-colors">退出登录</button>
     </div>
@@ -265,19 +275,24 @@
             <label class="block text-xs font-medium text-slate-600 mb-1.5">结束日期</label>
             <input id="a-end" type="date" value="2025-12-31" max="" class="input-field border border-slate-200 rounded-lg px-3 py-2 text-sm" />
           </div>
-          <button onclick="runAnalysis()" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">数据模式</label>
+            <select id="analysis-data-mode" onchange="syncDataSource(this.value)" class="input-field border border-slate-200 rounded-lg px-3 py-2 text-sm">
+              <option value="auto">自动（联网）</option>
+              <option value="offline">内置样例（离线）</option>
+            </select>
+          </div>
+          <button id="analysis-run-btn" onclick="runAnalysis()" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>运行分析
           </button>
         </div>
+        <div id="analysis-run-status" class="mt-3 text-xs text-slate-500" aria-live="polite"></div>
       </div>
       <!-- 指标卡 -->
       <div id="a-metrics" class="grid grid-cols-5 gap-3 mb-5">
-        <div class="skeleton h-20 rounded-lg"></div><div class="skeleton h-20 rounded-lg"></div>
-        <div class="skeleton h-20 rounded-lg"></div><div class="skeleton h-20 rounded-lg"></div>
-        <div class="skeleton h-20 rounded-lg"></div><div class="skeleton h-20 rounded-lg"></div>
-        <div class="skeleton h-20 rounded-lg"></div><div class="skeleton h-20 rounded-lg"></div>
-        <div class="skeleton h-20 rounded-lg"></div><div class="skeleton h-20 rounded-lg"></div>
+        <div class="col-span-5 border border-dashed border-slate-200 rounded-lg py-8 text-center text-sm text-slate-400">尚未加载数据，请设置参数后点击“运行分析”</div>
       </div>
+      <div id="analysis-data-status" class="mt-2 text-sm" aria-live="polite"></div>
       <!-- 图表区 -->
       <div class="bg-white border border-slate-200 rounded-lg mb-5 shadow-sm overflow-hidden">
         <div class="border-b border-slate-100 px-4 flex gap-1 pt-1">
@@ -348,10 +363,11 @@
             <label class="block text-xs font-medium text-slate-600 mb-1.5">结束日期</label>
             <input id="cmp-end" type="date" value="2025-12-31" max="" class="input-field border border-slate-200 rounded-lg px-3 py-2 text-sm" />
           </div>
-          <button onclick="runComparison()" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+          <button id="comparison-run-btn" onclick="runComparison()" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>运行对比
           </button>
         </div>
+        <div id="comparison-run-status" class="mt-3 text-xs text-slate-500" aria-live="polite"></div>
         <div class="flex gap-2 mt-3 flex-wrap">
           <span class="text-xs text-slate-500">热门：</span>
           <button onclick="addSymbol('600519')" class="text-xs text-blue-500 hover:underline">茅台</button>
@@ -502,6 +518,7 @@
             <p id="status-duration" class="font-mono text-sm text-slate-700">-</p>
           </div>
         </div>
+        <div id="status-data-context" class="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600">-</div>
       </div>
 
       <!-- LangGraph 工作流可视化 -->
@@ -528,7 +545,7 @@
         <div class="flex items-start gap-4 mb-4">
           <div class="text-3xl">⚠️</div>
           <div class="flex-1">
-            <h3 class="text-lg font-bold text-orange-900 mb-2">需要人工审批</h3>
+            <h3 id="approval-title" class="text-lg font-bold text-orange-900 mb-2">需要人工审批</h3>
             <p id="approval-reason" class="text-sm text-orange-800 mb-4"></p>
           </div>
         </div>
@@ -536,7 +553,7 @@
         <div class="flex gap-4">
           <button id="approval-approve-btn" onclick="submitApproval('approve')"
             class="flex-1 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-semibold transition-colors">
-            ✅ 批准（Approve）
+            ✅ 批准并继续（不会真实下单）
           </button>
           <button id="approval-reject-btn" onclick="submitApproval('reject')"
             class="flex-1 bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-semibold transition-colors">
@@ -586,7 +603,8 @@
               <input type="text" value="0.03%" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" /></div>
           </div>
           <p class="text-xs text-slate-500 mb-3">📌 策略：MA5/MA20 金叉买入 · 死叉卖出（趋势跟踪）</p>
-          <button onclick="runBacktest()" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors">▶ 运行回测</button>
+          <button id="backtest-run-btn" onclick="runBacktest()" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">▶ 运行回测</button>
+          <div id="backtest-run-status" class="mt-3 text-xs text-slate-500" aria-live="polite"></div>
         </div>
       </div>
       <!-- 结果区 -->
@@ -668,7 +686,7 @@
                 <label class="block text-xs font-medium text-slate-600 mb-1.5">限价</label>
                 <input id="st-limit" type="number" step="0.01" placeholder="输入限价" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
               </div>
-              <button onclick="placeOrder()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors">📋 提交订单</button>
+              <button id="place-order-btn" onclick="placeOrder()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">📋 提交订单</button>
             </div>
           </div>
           <!-- 行情区 -->
@@ -679,16 +697,59 @@
                 <span id="st-mkt-symbol" class="text-sm font-medium text-slate-700">600519</span>
                 <span id="st-mkt-price" class="num ml-3 text-lg font-semibold text-slate-900">100.00</span>
               </div>
-              <button onclick="pushTick()" class="border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-600 px-3 py-1.5 rounded-lg text-xs transition-colors">🔔 推送行情</button>
+              <button id="push-tick-btn" onclick="pushTick()" title="批量刷新当前代码及全部持仓的账户估值行情" class="border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-600 px-3 py-1.5 rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed">刷新账户行情</button>
               <button id="btn-live-quote" onclick="
                 const btn=this;
+                if (brokerOperationBusy) return;
+                stopBrokerAutoRefresh('正在获取单股报价');
+                brokerOperationBusy=true;
                 btn.disabled=true;
                 btn.innerHTML='⏳ 获取中…';
                 const sym=(document.getElementById('st-symbol')?.value.trim()||'600519').toUpperCase();
-                fetchLiveQuote(sym).then(()=>updateBrokerUI()).finally(()=>{btn.disabled=false;btn.innerHTML='🌐 联网行情';});
-              " class="border border-green-200 hover:border-green-400 text-green-600 hover:text-green-700 px-3 py-1.5 rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed">🌐 联网行情</button>
+                fetchLiveQuote(sym, {forceRefresh:true}).then(()=>updateBrokerUI()).finally(()=>{
+                  brokerOperationBusy=false;
+                  btn.disabled=false;
+                  btn.innerHTML='获取单股实时报价';
+                  restartBrokerAutoRefresh();
+                });
+              " title="绕过短时缓存，获取输入框中单只股票的腾讯公开分钟快照" class="border border-green-200 hover:border-green-400 text-green-600 hover:text-green-700 px-3 py-1.5 rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed">获取单股实时报价</button>
+            </div>
+            <div class="flex items-center gap-3 mb-3 text-xs text-slate-600">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input id="broker-auto-refresh" type="checkbox" checked onchange="restartBrokerAutoRefresh()" class="accent-blue-500" />
+                自动刷新
+              </label>
+              <select id="broker-refresh-interval" onchange="restartBrokerAutoRefresh()" aria-label="自动刷新间隔"
+                class="border border-slate-200 rounded px-2 py-1 bg-white">
+                <option value="3000">3 秒（高频）</option>
+                <option value="10000">10 秒</option>
+                <option value="30000" selected>30 秒</option>
+                <option value="60000">60 秒</option>
+                <option value="120000">120 秒</option>
+              </select>
+              <span id="broker-refresh-countdown" class="text-slate-400" aria-live="polite">等待进入模拟盘</span>
             </div>
             <div id="st-match-result" class="text-xs text-slate-500"></div>
+            <div id="st-order-status" class="text-xs text-slate-500 mt-1" aria-live="polite"></div>
+          </div>
+          <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+            <h3 class="text-sm font-semibold text-slate-800 mb-3">连续交易日模拟</h3>
+            <div class="grid grid-cols-2 gap-2 mb-2">
+              <input id="paper-run-symbols" value="DEMO001" placeholder="代码，逗号分隔" class="input-field border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+              <input id="paper-run-days" type="number" min="1" max="250" value="20" placeholder="交易日数量（1-250）" aria-label="请求交易日数量" class="input-field border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <button id="paper-run-btn" onclick="runContinuousPaperTrading()" class="w-full border border-blue-200 text-blue-600 hover:border-blue-400 py-2 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed">运行连续模拟</button>
+            <div id="paper-run-status" class="text-xs text-slate-500 mt-2" aria-live="polite"></div>
+            <div id="paper-run-result" class="text-xs text-slate-500 mt-2"></div>
+            <div class="border-t border-slate-100 mt-4 pt-4">
+              <div class="flex items-center justify-between mb-2">
+                <h4 class="text-xs font-semibold text-slate-700">交易日长期监控</h4>
+                <input id="paper-monitor-time" type="time" value="15:10" aria-label="每日采集时间" class="input-field border border-slate-200 rounded px-2 py-1 text-xs" />
+              </div>
+              <button id="paper-monitor-create-btn" onclick="createPaperMonitorJob()" class="w-full border border-green-200 text-green-700 hover:border-green-400 py-2 rounded-lg text-sm disabled:opacity-50">创建每日监控任务</button>
+              <div id="paper-monitor-status" class="text-xs text-slate-500 mt-2" aria-live="polite"></div>
+              <div id="paper-monitor-jobs" class="text-xs text-slate-500 mt-2"></div>
+            </div>
           </div>
           <!-- 重置 -->
           <div class="text-center">
@@ -723,19 +784,20 @@
               </tbody>
             </table>
           </div>
-          <!-- 挂单表 -->
+          <!-- 订单表 -->
           <div class="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-            <div class="px-4 py-3 bg-slate-50 border-b border-slate-100"><h3 class="text-sm font-medium text-slate-700">挂单列表</h3></div>
+            <div class="px-4 py-3 bg-slate-50 border-b border-slate-100"><h3 class="text-sm font-medium text-slate-700">订单列表</h3></div>
             <table class="w-full text-xs">
               <thead><tr class="bg-slate-50 border-b border-slate-100">
                 <th class="px-3 py-2 text-left font-medium text-slate-600">订单ID</th>
                 <th class="px-3 py-2 text-left font-medium text-slate-600">代码</th>
                 <th class="px-3 py-2 text-center font-medium text-slate-600">方向</th>
                 <th class="px-3 py-2 text-right font-medium text-slate-600">数量</th>
-                <th class="px-3 py-2 text-right font-medium text-slate-600">限价</th>
+                <th class="px-3 py-2 text-right font-medium text-slate-600">成交价/限价</th>
+                <th class="px-3 py-2 text-center font-medium text-slate-600">状态</th>
               </tr></thead>
               <tbody id="st-orders-body" class="divide-y divide-slate-100">
-                <tr><td colspan="5" class="px-3 py-4 text-center text-slate-400">暂无挂单</td></tr>
+                <tr><td colspan="6" class="px-3 py-4 text-center text-slate-400">暂无订单</td></tr>
               </tbody>
             </table>
           </div>
@@ -746,7 +808,7 @@
     <div id="page-obs" class="page p-6">
       <!-- 顶部按钮行 -->
       <div class="flex gap-3 mb-5 flex-wrap">
-        <button onclick="resetObs()" class="border border-slate-200 hover:border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm transition-colors">🔄 重置统计</button>
+        <button id="obs-reset-btn" onclick="resetObs()" class="hidden border border-slate-200 hover:border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm transition-colors">🔄 重置统计</button>
         <button onclick="navigate('deep')" class="border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg text-sm transition-colors">🔬 前往深度投研</button>
       </div>
       <!-- 8 指标卡 -->
@@ -760,11 +822,11 @@
           <p id="obs-success-rate" class="num text-xl font-semibold text-green-600">—</p>
         </div>
         <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm card-hover">
-          <p class="text-xs text-slate-500 mb-1">输入字符</p>
+          <p class="text-xs text-slate-500 mb-1">输入字符<span class="text-slate-400">（mock 模式为 0）</span></p>
           <p id="obs-in-tokens" class="num text-xl font-semibold text-slate-900">0</p>
         </div>
         <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm card-hover">
-          <p class="text-xs text-slate-500 mb-1">输出字符</p>
+          <p class="text-xs text-slate-500 mb-1">输出字符<span class="text-slate-400">（mock 模式为 0）</span></p>
           <p id="obs-out-tokens" class="num text-xl font-semibold text-slate-900">0</p>
         </div>
         <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm card-hover">
@@ -814,6 +876,140 @@
         </div>
       </div>
     </div>
+    <!-- ═══ Page 8: 天气分析 ═══ -->
+    <div id="page-weather" class="page p-6">
+      <!-- 输入区域 -->
+      <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-5 mb-5">
+        <h3 class="text-sm font-semibold text-slate-700 mb-4">天气数据</h3>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">数据模式</label>
+            <select id="weather-data-mode" onchange="switchWeatherMode(this.value)"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="online" selected>联网天气预报</option>
+              <option value="offline">离线样例 / 手动输入</option>
+            </select>
+          </div>
+          <div id="weather-sample-field" class="hidden">
+          <label class="block text-xs font-medium text-slate-600 mb-1.5">内置样例</label>
+          <select id="weather-sample" onchange="applyWeatherSample(this.value)"
+            class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50">
+            <option value="">手动输入</option>
+            <option value="北京" selected>北京</option>
+            <option value="上海">上海</option>
+            <option value="广州">广州</option>
+            <option value="哈尔滨">哈尔滨</option>
+            <option value="昆明">昆明</option>
+          </select>
+          </div>
+        </div>
+        <div id="weather-online-location-fields" class="grid grid-cols-4 gap-4 mb-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">省级地区</label>
+            <select id="weather-province" onchange="updateWeatherCities()"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"></select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">城市</label>
+            <select id="weather-city-select" onchange="updateWeatherDistricts()"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"></select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">区 / 县</label>
+            <select id="weather-district" onchange="clearWeatherStatus()"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"></select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">自定义地点（可选）</label>
+            <input id="weather-custom-location" type="text" maxlength="100" placeholder="例如：北京市朝阳区"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div id="weather-city-field" class="hidden">
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">城市名称</label>
+            <input id="weather-city" type="text" value="北京" placeholder="请输入城市名称"
+              class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">数据来源</label>
+            <div id="weather-source-display"
+              class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-100 text-slate-700">
+              Open-Meteo 公开天气数据
+            </div>
+          </div>
+        </div>
+        <div id="weather-temps-field" class="hidden mb-4">
+          <label class="block text-xs font-medium text-slate-600 mb-1.5">温度序列（°C，逗号分隔，2-366个数据点，范围 -100~100）</label>
+          <textarea id="weather-temps" rows="3" placeholder="例如：5.2, 6.8, 8.1, 9.5, 11.2, 13.0, 15.8"
+            class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 font-mono">5.2, 6.8, 8.1, 9.5, 11.2, 13.0, 15.8, 18.2, 20.5, 22.8, 24.0, 23.5, 21.2, 18.9, 16.3, 13.7, 10.5, 7.8</textarea>
+        </div>
+        <button onclick="runWeatherAnalysis()" id="weather-analyze-btn"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+          获取天气并分析
+        </button>
+        <div id="weather-status" class="mt-3 text-sm text-slate-600"></div>
+      </div>
+      <!-- 结果显示 -->
+      <div id="weather-result-container" class="hidden">
+        <div id="weather-live-container" class="hidden bg-white border border-slate-200 rounded-lg shadow-sm p-5 mb-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-slate-700">当前天气与未来 7 天预报</h3>
+            <span id="weather-live-observed" class="text-xs text-slate-400"></span>
+          </div>
+          <p id="weather-location-note" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mb-4"></p>
+          <div id="weather-live-current" class="grid grid-cols-5 gap-3 mb-5"></div>
+          <div id="weather-live-daily" class="grid grid-cols-7 gap-2"></div>
+        </div>
+        <!-- 基础信息卡片 -->
+        <div class="grid grid-cols-3 gap-4 mb-5">
+          <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+            <p class="text-xs text-slate-500 mb-1">城市</p>
+            <p id="weather-res-city" class="text-lg font-semibold text-slate-900">—</p>
+          </div>
+          <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+            <p class="text-xs text-slate-500 mb-1">数据点数</p>
+            <p id="weather-res-period" class="text-lg font-semibold text-slate-900 num">—</p>
+          </div>
+          <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+            <p class="text-xs text-slate-500 mb-1">趋势</p>
+            <p id="weather-res-trend" class="text-lg font-semibold text-blue-600">—</p>
+          </div>
+        </div>
+        <!-- 温度统计 -->
+        <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-5 mb-5">
+          <h3 class="text-sm font-semibold text-slate-700 mb-4">温度统计</h3>
+          <div class="grid grid-cols-5 gap-3">
+            <div><p class="text-xs text-slate-500 mb-1">平均温度</p><p id="weather-res-avg" class="text-base font-semibold text-slate-900 num">—</p></div>
+            <div><p class="text-xs text-slate-500 mb-1">最高温度</p><p id="weather-res-max" class="text-base font-semibold text-red-600 num">—</p></div>
+            <div><p class="text-xs text-slate-500 mb-1">最低温度</p><p id="weather-res-min" class="text-base font-semibold text-blue-600 num">—</p></div>
+            <div><p class="text-xs text-slate-500 mb-1">温度范围</p><p id="weather-res-range" class="text-base font-semibold text-slate-900 num">—</p></div>
+            <div><p class="text-xs text-slate-500 mb-1">波动性</p><p id="weather-res-volatility" class="text-base font-semibold text-amber-600 num">—</p></div>
+          </div>
+        </div>
+        <!-- 分析摘要 -->
+        <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-5 mb-5">
+          <h3 class="text-sm font-semibold text-slate-700 mb-3">分析摘要</h3>
+          <p id="weather-res-summary" class="text-sm text-slate-700 leading-relaxed">—</p>
+        </div>
+        <!-- Harness 检查结果 -->
+        <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-5 mb-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-slate-700">Harness Pre-Flight 检查</h3>
+            <span id="weather-harness-badge" class="px-2.5 py-1 rounded-full text-xs font-medium">—</span>
+          </div>
+          <div id="weather-harness-checks" class="space-y-2"></div>
+        </div>
+        <!-- 元数据 -->
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div><span class="text-slate-500">数据来源：</span><span id="weather-res-source" class="text-slate-700 font-medium">—</span></div>
+            <div><span class="text-slate-500">更新时间：</span><span id="weather-res-updated" class="text-slate-700 font-mono">—</span></div>
+            <div class="col-span-2"><span class="text-slate-500">免责声明：</span><span id="weather-res-disclaimer" class="text-slate-600">—</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
     <!-- /页面容器 -->
   </div><!-- /main-content inner -->
 </div><!-- /main-content -->
@@ -830,10 +1026,18 @@ const PAGE_META = {
   backtest:   { title:'策略回测',   subtitle:'MA5/MA20 金叉死叉 · 夏普比率 · 净值曲线' },
   simtrade:   { title:'模拟盘',     subtitle:'MockBroker 本地撮合 · 市价/限价 · 持仓管理' },
   obs:        { title:'可观测性',   subtitle:'真实 API 调用耗时 · 成功率 · Guardrail 结果' },
+  weather:    { title:'天气分析',   subtitle:'通用 Agent 平台 · 非金融领域演示 · Harness 校验' },
 };
 
-// 模拟盘状态
-let broker = { cash: 1_000_000, positions: {}, orders: [], tickers: {}, orderSeq: 1 };
+// 模拟盘只缓存后端快照；现金、订单和持仓的事实来源是 SQLite + MockBroker API。
+let broker = { cash: 1_000_000, total: 1_000_000, pnl: 0, trades: 0, positions: {}, orders: [], tickers: {} };
+let brokerAccountId = localStorage.getItem('paper_broker_account_id') || null;
+let brokerAccountLoaded = false;
+let brokerOperationBusy = false;
+let brokerAutoRefreshTimer = null;
+let brokerAutoRefreshDueAt = 0;
+let brokerCountdownTimer = null;
+let activeDataMode = 'offline';
 
 // 可观测性状态
 let obsState = { calls: [], callSeq: 1, harnessResults: [] };
@@ -859,7 +1063,9 @@ function updateApiBase(newUrl) {
 }
 
 function getDataSource() {
-  return document.getElementById('deep-data-mode')?.value || 'offline';
+  return document.querySelector('input[name="datasource"]:checked')?.value
+    || document.getElementById('deep-data-mode')?.value
+    || 'offline';
 }
 /**
  * 调用后端 API。GET 与 POST 共用同一实现。
@@ -867,10 +1073,12 @@ function getDataSource() {
  * 注意：options 必须真正传给 fetch，否则 POST 会退化成无 body 的 GET。
  */
 async function callApi(path, options = {}) {
+  window._lastApiStatus = null;
+  window._lastApiPath = path;
   try {
     const init = { signal: AbortSignal.timeout(60000), ...options };
     if (init.body && !init.method) init.method = 'POST';
-    const resp = await fetch(API_BASE + path, init);
+    const resp = await authFetch(API_BASE + path, init);
     if (!resp.ok) {
       // 后端用 detail 字段表达校验/数据质量错误，必须原样暴露给用户
       let detail = `HTTP ${resp.status}`;
@@ -881,14 +1089,123 @@ async function callApi(path, options = {}) {
       } catch (_) { /* 响应体非 JSON，保留状态码 */ }
       const e = new Error(detail);
       e.status = resp.status;
+      window._lastApiStatus = resp.status;
       throw e;
     }
     return await resp.json();
   } catch (e) {
-    console.warn('[API]', path, e.message);
-    window._lastApiError = e.message;
+    const message = (e.name === 'TimeoutError' || e.name === 'AbortError')
+      ? '后端或公共数据源响应超时，请稍后重试或减少标的数量'
+      : e.message;
+    console.warn('[API]', path, message);
+    window._lastApiError = message;
     return null;
   }
+}
+
+let authToken = sessionStorage.getItem('auth_token') || '';
+let authRegistrationOpen = false;
+let authenticatedUser = null;
+
+function applyAuthenticatedUser(user) {
+  authenticatedUser = user || null;
+  const username = user?.username || '未登录';
+  const role = user?.role === 'admin' ? '管理员' : user?.role === 'user' ? '普通用户' : '当前用户';
+  const nameEl = document.getElementById('user-name');
+  const roleEl = document.getElementById('user-role');
+  const avatarEl = document.getElementById('user-avatar');
+  if (nameEl) nameEl.textContent = username;
+  if (roleEl) roleEl.textContent = role;
+  if (avatarEl) avatarEl.textContent = username.slice(0, 1).toUpperCase();
+  const adminButton = document.getElementById('admin-users-menu-btn');
+  if (adminButton) adminButton.classList.toggle('hidden', user?.role !== 'admin');
+  const resetButton = document.getElementById('obs-reset-btn');
+  if (resetButton) resetButton.classList.toggle('hidden', user?.role !== 'admin');
+}
+
+async function authFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (authToken) headers.set('Authorization', `Bearer ${authToken}`);
+  const response = await fetch(url, {...options, headers});
+  if (response.status === 401 && !String(url).includes('/auth/login')) {
+    authToken = '';
+    sessionStorage.removeItem('auth_token');
+    showLoginPage('登录已过期，请重新登录');
+  }
+  return response;
+}
+
+function showLoginPage(message = '') {
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('app').classList.remove('flex');
+  document.getElementById('login-page').classList.remove('hidden');
+  const error = document.getElementById('login-error');
+  if (error) error.textContent = message;
+}
+
+async function initializeAuthentication() {
+  try {
+    const response = await fetch(`${API_BASE}/auth/status`, {signal: AbortSignal.timeout(5000)});
+    const status = await response.json();
+    authRegistrationOpen = Boolean(status.registration_open);
+    const registerTab = document.getElementById('tab-register');
+    if (registerTab) {
+      registerTab.disabled = !authRegistrationOpen;
+      registerTab.classList.toggle('opacity-40', !authRegistrationOpen);
+      registerTab.classList.toggle('cursor-not-allowed', !authRegistrationOpen);
+      registerTab.title = authRegistrationOpen ? '创建新账号' : '当前环境未开放自助注册';
+    }
+    if (!status.enabled) {
+      enterApplication();
+      return;
+    }
+    if (authToken) {
+      const meResponse = await authFetch(`${API_BASE}/auth/me`, {signal: AbortSignal.timeout(5000)});
+      if (meResponse.ok) {
+        applyAuthenticatedUser(await meResponse.json());
+        enterApplication();
+        return;
+      }
+    }
+    showLoginPage('');
+    switchLoginTab(authRegistrationOpen && !status.has_users ? 'register' : 'login');
+  } catch (error) {
+    showLoginPage(`后端连接失败：${error.message}`);
+  }
+}
+
+function describeAnalysisFailure(symbol, dataMode) {
+  const detail = window._lastApiError || '后端未返回分析结果';
+  const status = window._lastApiStatus;
+  if (status === 503) {
+    return {
+      title: '联网行情暂不可用',
+      body: dataMode === 'auto'
+        ? `后端在线，但公共行情源暂时无法访问，未生成或替换任何价格数据。证券代码：${symbol}`
+        : '离线样例数据暂不可用，请确认样例代码和日期范围。',
+      detail,
+    };
+  }
+  if (status === 404) {
+    return {
+      title: '证券代码不存在或无可用数据',
+      body: `请检查证券代码 ${symbol}，联网模式只接受真实 6 位 A 股代码，离线模式只接受 DEMO/TEST 样例代码。`,
+      detail,
+    };
+  }
+  if (status === 400) {
+    return { title: '分析参数不合法', body: '请检查日期范围和证券代码。', detail };
+  }
+  return {
+    title: '无法连接分析服务',
+    body: '请确认后端服务正在运行，并检查浏览器与 API 地址是否一致。',
+    detail,
+  };
+}
+
+function retryAnalysis() {
+  const button = document.getElementById('analysis-run-btn');
+  if (button) button.click();
 }
 
 async function loadBackendHealth() {
@@ -934,7 +1251,9 @@ function showDataSourceBadge(containerId, isReal, source) {
    深度投研 LangGraph 工作流状态管理
 ═══════════════════════════════════════════════════════════════ */
 let currentThreadId = null;
-let pollingInterval = null;
+let pollingTimer = null;
+let researchElapsedTimer = null;
+let researchStartedAt = 0;
 
 // 安全转义 HTML，防止 XSS
 function escapeHtml(text) {
@@ -949,10 +1268,59 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+const operationRuns = new Map();
+
+async function withOperationFeedback(key, buttonId, statusId, runningLabel, task) {
+  if (operationRuns.has(key)) return;
+  const button = document.getElementById(buttonId);
+  const status = document.getElementById(statusId);
+  const originalHtml = button ? button.innerHTML : '';
+  const startedAt = performance.now();
+  const updateElapsed = () => {
+    if (!status) return;
+    const seconds = (performance.now() - startedAt) / 1000;
+    status.innerHTML = `<span class="inline-flex items-center gap-1.5 text-blue-600"><span class="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>${runningLabel}，已用时 ${seconds.toFixed(1)} 秒。可切换页面继续使用其他功能。</span>`;
+  };
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '⏳ 处理中…';
+  }
+  updateElapsed();
+  const timer = setInterval(updateElapsed, 250);
+  operationRuns.set(key, timer);
+  try {
+    const result = await task();
+    const seconds = (performance.now() - startedAt) / 1000;
+    if (status) status.innerHTML = result === false
+      ? `<span class="text-red-600">❌ 未完成（${seconds.toFixed(1)} 秒），请查看下方错误信息</span>`
+      : `<span class="text-green-600">✅ 已完成，用时 ${seconds.toFixed(1)} 秒</span>`;
+    return result;
+  } catch (error) {
+    const seconds = (performance.now() - startedAt) / 1000;
+    if (status) status.innerHTML = `<span class="text-red-600">❌ 执行失败（${seconds.toFixed(1)} 秒）：${escapeHtml(error.message || String(error))}</span>`;
+    throw error;
+  } finally {
+    clearInterval(timer);
+    operationRuns.delete(key);
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+    }
+  }
+}
+
 // 格式化置信度
 function formatConfidence(conf) {
   if (conf == null) return '-';
   return `${(conf * 100).toFixed(1)}%`;
+}
+
+function formatDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return '-';
+  if (value > 0 && value < 0.001) return '<0.001s';
+  if (value < 1) return `${value.toFixed(3)}s`;
+  return `${value.toFixed(2)}s`;
 }
 
 // 格式化信号
@@ -963,6 +1331,17 @@ function formatSignal(signal) {
   if (s === 'sell') return '卖出';
   if (s === 'hold') return '持有';
   return signal;
+}
+
+function formatResearchValue(value) {
+  const labels = {
+    overvalued: '高估', fairly_valued: '估值合理', undervalued: '低估',
+    consolidation: '震荡整理', bullish: '偏多', bearish: '偏空', neutral: '中性',
+    high: '高', medium: '中性', low: '低', unknown: '未知',
+    booming: '景气', recession: '低迷',
+  };
+  if (value == null || value === '') return 'N/A';
+  return labels[String(value).toLowerCase()] || String(value);
 }
 
 // 格式化最终动作
@@ -1044,22 +1423,111 @@ function navigate(page) {
   // 初始化图表（首次进入）
   if (page === 'analysis') initAnalysisCharts();
   if (page === 'comparison') initComparisonCharts();
-  if (page === 'obs') initObsCharts();
+  if (page === 'obs') loadObservability();
+  if (page === 'simtrade') {
+    loadPaperMonitorJobs();
+    ensurePaperAccount().then(() => updateBrokerUI()).catch(error => {
+      const status = document.getElementById('st-order-status');
+      if (status) status.textContent = `账户加载失败：${error.message}`;
+    });
+    restartBrokerAutoRefresh();
+  } else {
+    stopBrokerAutoRefresh('离开模拟盘，自动刷新已暂停');
+  }
   document.getElementById('user-menu').classList.add('hidden');
 }
-function doLogin() {
+function enterApplication() {
   document.getElementById('login-page').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('app').classList.add('flex');
   initSidebar();
   navigate('analysis');
 }
+async function doLogin() {
+  const username = document.getElementById('inp-username')?.value.trim() || '';
+  const password = document.getElementById('inp-password')?.value || '';
+  const error = document.getElementById('login-error');
+  const button = document.getElementById('login-submit-btn');
+  if (error) error.textContent = '';
+  if (!username || password.length < 8) {
+    if (error) error.textContent = '请输入用户名和至少 8 位密码';
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username, password}), signal: AbortSignal.timeout(10000),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    authToken = body.access_token;
+    sessionStorage.setItem('auth_token', authToken);
+    applyAuthenticatedUser(body.user);
+    enterApplication();
+  } catch (loginError) {
+    if (error) error.textContent = loginError.message;
+  } finally { if (button) button.disabled = false; }
+}
+async function doRegister() {
+  const username = document.getElementById('reg-username')?.value.trim() || '';
+  const email = document.getElementById('reg-email')?.value.trim() || '';
+  const password = document.getElementById('reg-password')?.value || '';
+  const confirmPassword = document.getElementById('reg-confirm-password')?.value || '';
+  const error = document.getElementById('register-error');
+  const button = document.getElementById('register-submit-btn');
+  if (error) error.textContent = '';
+  if (!authRegistrationOpen) {
+    if (error) error.textContent = '当前环境未开放自助注册，请联系管理员。';
+    return;
+  }
+  if (username.length < 2) {
+    if (error) error.textContent = '用户名至少需要 2 个字符。';
+    return;
+  }
+  if (password.length < 8) {
+    if (error) error.textContent = '密码至少需要 8 位。';
+    return;
+  }
+  if (password !== confirmPassword) {
+    if (error) error.textContent = '两次输入的密码不一致。';
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    const payload = {username, password};
+    if (email) payload.email = email;
+    const response = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload), signal: AbortSignal.timeout(10000),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    authToken = body.access_token;
+    sessionStorage.setItem('auth_token', authToken);
+    applyAuthenticatedUser(body.user);
+    enterApplication();
+  } catch (registerError) {
+    if (error) error.textContent = registerError.message;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
 function doLogout() {
+  authToken = '';
+  authenticatedUser = null;
+  sessionStorage.removeItem('auth_token');
+  applyAuthenticatedUser(null);
   document.getElementById('app').classList.add('hidden');
   document.getElementById('app').classList.remove('flex');
   document.getElementById('login-page').classList.remove('hidden');
 }
 function switchLoginTab(tab) {
+  if (tab === 'register' && !authRegistrationOpen) {
+    const error = document.getElementById('login-error');
+    if (error) error.textContent = '当前环境未开放自助注册，请联系管理员。';
+    tab = 'login';
+  }
   document.getElementById('form-login').classList.toggle('hidden', tab !== 'login');
   document.getElementById('form-register').classList.toggle('hidden', tab !== 'register');
   document.getElementById('tab-login').classList.toggle('tab-active', tab === 'login');
@@ -1147,8 +1615,13 @@ function drawLineChart(svgId, datasets, opts = {}) {
   const isGap = v => v === null || v === undefined || Number.isNaN(Number(v));
   const allVals = datasets.flatMap(d => d.values).filter(v => !isGap(v)).map(Number);
   if (!allVals.length) { svg.innerHTML = ''; return; }
-  const minV = Math.min(...allVals), maxV = Math.max(...allVals);
-  const range = maxV - minV || 1;
+  let minV = Math.min(...allVals), maxV = Math.max(...allVals);
+  if (maxV === minV) {
+    const margin = Math.max(Math.abs(maxV) * 0.01, 0.01);
+    minV -= margin;
+    maxV += margin;
+  }
+  const range = maxV - minV;
   const n = datasets[0]?.values.length || 1;
   const xStep = cw / Math.max(n - 1, 1);
   const scaleY = v => pad.top + ch - ((v - minV) / range) * ch;
@@ -1207,11 +1680,20 @@ function drawLineChart(svgId, datasets, opts = {}) {
   });
   // X 轴标签（每隔若干个）
   if (opts.xLabels) {
-    const step = Math.max(1, Math.floor(n / 6));
-    opts.xLabels.forEach((lbl, i) => {
-      if (i % step === 0 || i === n - 1) {
-        html += `<text x="${scaleX(i)}" y="${H - 5}" fill="#94A3B8" font-size="9" text-anchor="middle">${lbl}</text>`;
-      }
+    const available = opts.xLabels
+      .map((label, index) => ({ label, index }))
+      .filter(item => item.label !== null && item.label !== undefined && String(item.label) !== '');
+    const maxLabels = Math.max(2, Math.min(7, Math.floor(cw / 110) + 1));
+    const selected = [];
+    const count = Math.min(maxLabels, available.length);
+    for (let slot = 0; slot < count; slot++) {
+      const pos = count === 1 ? 0 : Math.round(slot * (available.length - 1) / (count - 1));
+      const item = available[pos];
+      if (item && !selected.some(existing => existing.index === item.index)) selected.push(item);
+    }
+    selected.forEach((item, position) => {
+      const anchor = position === 0 ? 'start' : position === selected.length - 1 ? 'end' : 'middle';
+      html += `<text x="${scaleX(item.index)}" y="${H - 5}" fill="#94A3B8" font-size="9" text-anchor="${anchor}">${escapeHtml(String(item.label))}</text>`;
     });
   }
   svg.innerHTML = html;
@@ -1340,32 +1822,51 @@ function validateDateRange(startId, endId, maxDate) {
 // 前端不再用日历天数估算数据点数。
 
 async function runAnalysis() {
-  if (!validateDateRange('a-start', 'a-end')) return;
+  return withOperationFeedback(
+    'analysis', 'analysis-run-btn', 'analysis-run-status',
+    '正在并行获取指标和价格历史', runAnalysisTask,
+  );
+}
+
+async function runAnalysisTask() {
+  if (!validateDateRange('a-start', 'a-end')) return false;
   const symbol   = (document.getElementById('a-symbol').value || 'DEMO001').trim().toUpperCase();
   const startVal = document.getElementById('a-start').value || '2025-01-02';
   const endVal   = document.getElementById('a-end').value   || '2025-12-31';
-  const dataMode = getDataSource();
+  const dataMode = document.getElementById('analysis-data-mode')?.value || 'auto';
 
-  // 骨架屏占位
+  // 骨架屏占位，同时清掉上一次结果，避免新请求失败时继续显示旧行情。
   document.getElementById('a-metrics').innerHTML =
     Array(10).fill('<div class="skeleton h-20 rounded-lg"></div>').join('');
+  document.getElementById('analysis-data-status').innerHTML = '<span class="text-blue-600">正在请求后端行情...</span>';
+  ['svg-kline', 'svg-macd', 'svg-kdj', 'svg-rsi'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.innerHTML = '';
+  });
+  document.getElementById('raw-table-body').innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-slate-400">加载中...</td></tr>';
 
   // ── 统一调用后端 API（auto 或 offline）────────────────────────────
   const requestStartedAt = performance.now();
-  const [analysis, history] = await Promise.all([
-    callApi(`/analysis/${encodeURIComponent(symbol)}?start=${startVal}&end=${endVal}&data_mode=${dataMode}`),
-    callApi(`/price-history/${encodeURIComponent(symbol)}?start=${startVal}&end=${endVal}&data_mode=${dataMode}`),
-  ]);
+  // /analysis 已返回指标序列与 OHLCV，不再重复请求 /price-history。
+  const analysis = await callApi(
+    `/analysis/${encodeURIComponent(symbol)}?start=${startVal}&end=${endVal}&data_mode=${dataMode}`,
+    { signal: AbortSignal.timeout(90000) },
+  );
+  const history = analysis?.series || [];
+  const effectiveStart = analysis?.start_date || history[0]?.date || startVal;
+  const effectiveEnd = analysis?.end_date || history[history.length - 1]?.date || endVal;
 
   if (!analysis) {
-    // 后端不可达，提示
+    const failure = describeAnalysisFailure(symbol, dataMode);
     document.getElementById('a-metrics').innerHTML =
-      `<div class="col-span-5 text-center py-8 text-slate-400">
+      `<div class="col-span-5 text-center py-8 text-slate-500">
         <p class="text-2xl mb-2">⚠️</p>
-        <p class="text-sm">后端服务不可达，请先运行：</p>
-        <code class="text-xs bg-slate-100 px-2 py-1 rounded mt-1 inline-block">.venv\\Scripts\\python.exe -m uvicorn src.agent_platform.api.main:app --port ${new URL(API_BASE).port}</code>
+        <p class="text-sm font-medium text-amber-700">${escapeHtml(failure.title)}</p>
+        <p class="text-sm mt-2">${escapeHtml(failure.body)}</p>
+        <button type="button" onclick="retryAnalysis()" class="mt-4 border border-blue-200 text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded text-sm">重新获取</button>
       </div>`;
-    return;
+    document.getElementById('analysis-data-status').innerHTML =
+      `<span class="text-red-600">${escapeHtml(failure.title)}：</span><span class="text-slate-500">${escapeHtml(failure.detail)}</span>`;
+    return false;
   }
 
   // 把 API 返回的指标映射到指标卡
@@ -1384,7 +1885,7 @@ async function runAnalysis() {
     { label:'MA20',      val: parseFloat(analysis.latest_ma20).toFixed(2),
       sub: '20日均线', color:'text-slate-600' },
     { label:'区间收益',  val: `${ret>=0?'+':''}${ret.toFixed(2)}%`,
-      sub: `${startVal} ~ ${endVal}`, color: ret>=0?'text-green-600':'text-red-600' },
+      sub: `${effectiveStart} ~ ${effectiveEnd}`, color: ret>=0?'text-green-600':'text-red-600' },
     { label:'最大回撤',  val: `${dd.toFixed(2)}%`,
       sub: '历史最大', color:'text-red-600' },
     { label:'年化波动率',val: `${vol2.toFixed(2)}%`,
@@ -1407,21 +1908,27 @@ async function runAnalysis() {
     </div>`).join('');
 
   // 显示数据来源标签和状态
-  const statusLabel = analysis.data_status === 'live' ? '🌐 实时数据' :
-                      analysis.data_status === 'offline_sample' ? '📦 离线样例' :
-                      analysis.data_status === 'fallback' ? '⚠️ 已降级' : '❌ 不可用';
-  const statusColor = analysis.data_status === 'live' ? 'bg-green-100 text-green-700' :
-                      analysis.data_status === 'offline_sample' ? 'bg-blue-100 text-blue-700' :
-                      analysis.data_status === 'fallback' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700';
+  const effectiveStatus = deriveEffectiveDataStatus(analysis.data_status, analysis);
+  const statusLabels = {
+    live: '🌐 实时数据', historical: '📊 历史日线', offline_sample: '📦 离线样例',
+    fallback: '⚠️ 已降级', partial: '⚠️ 部分可用', stale: '⚠️ 数据可能过期',
+    unavailable: '❌ 不可用',
+  };
+  const statusColors = {
+    live: 'bg-green-100 text-green-700', historical: 'bg-slate-100 text-slate-700',
+    offline_sample: 'bg-blue-100 text-blue-700', fallback: 'bg-orange-100 text-orange-700',
+    partial: 'bg-orange-100 text-orange-700', stale: 'bg-yellow-100 text-yellow-800',
+    unavailable: 'bg-red-100 text-red-700',
+  };
+  const statusLabel = statusLabels[effectiveStatus] || statusLabels.unavailable;
+  const statusColor = statusColors[effectiveStatus] || statusColors.unavailable;
 
-  document.getElementById('a-metrics').insertAdjacentHTML('afterend', `
-    <div class="mt-2 text-sm">
+  document.getElementById('analysis-data-status').innerHTML = `
       <span class="${statusColor} px-2 py-1 rounded-full inline-flex items-center gap-1">
-        ${statusLabel} ${analysis.source ? `(${analysis.source})` : ''}
+        ${statusLabel} ${analysis.source ? `(${escapeHtml(analysis.source)})` : ''}
       </span>
-      ${analysis.fallback_reason ? `<span class="ml-2 text-xs text-orange-600">降级原因: ${analysis.fallback_reason}</span>` : ''}
-    </div>
-  `);
+      ${analysis.fallback_reason ? `<span class="ml-2 text-xs text-orange-600">原因: ${escapeHtml(analysis.fallback_reason)}</span>` : ''}
+    `;
 
   // 图表：全部使用后端返回的真实指标序列（未成熟点为 null → 画缺口）
   window._analysisSeries = analysis.series || [];
@@ -1433,11 +1940,11 @@ async function runAnalysis() {
     tbody.innerHTML = history.slice(-10).map((b, i) =>
       `<tr class="${i%2===0?'bg-white':'bg-slate-50/50'}">
         <td class="px-4 py-2 text-slate-600">${b.date}</td>
-        <td class="px-4 py-2 text-right num">${parseFloat(b.open).toFixed(2)}</td>
-        <td class="px-4 py-2 text-right num text-green-600">${parseFloat(b.high).toFixed(2)}</td>
-        <td class="px-4 py-2 text-right num text-red-600">${parseFloat(b.low).toFixed(2)}</td>
+        <td class="px-4 py-2 text-right num">${Number(b.open).toFixed(2)}</td>
+        <td class="px-4 py-2 text-right num text-green-600">${Number(b.high).toFixed(2)}</td>
+        <td class="px-4 py-2 text-right num text-red-600">${Number(b.low).toFixed(2)}</td>
         <td class="px-4 py-2 text-right num font-medium">${parseFloat(b.close).toFixed(2)}</td>
-        <td class="px-4 py-2 text-right num">${Math.round(b.volume).toLocaleString()}</td>
+        <td class="px-4 py-2 text-right num">${Math.round(Number(b.volume)).toLocaleString()}</td>
       </tr>`
     ).join('');
   }
@@ -1448,6 +1955,7 @@ async function runAnalysis() {
     symbol.length + startVal.length + endVal.length,
     JSON.stringify(analysis).length,
   );
+  return true;
 }
 
 /**
@@ -1497,16 +2005,28 @@ function switchChartTab(tab) {
    6. Page 2：多股对比
 ═══════════════════════════════════════════════════════════════ */
 async function runComparison() {
-  if (!validateDateRange('cmp-start', 'cmp-end')) return;
+  return withOperationFeedback(
+    'comparison', 'comparison-run-btn', 'comparison-run-status',
+    '正在获取并对齐多只证券数据', runComparisonTask,
+  );
+}
+
+async function runComparisonTask() {
+  if (!validateDateRange('cmp-start', 'cmp-end')) return false;
   const raw   = document.getElementById('cmp-symbols').value;
   const syms  = raw.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,10);
-  if (syms.length < 1) return;
+  if (syms.length < 1) return false;
   const startVal = document.getElementById('cmp-start')?.value || '2025-01-02';
   const endVal   = document.getElementById('cmp-end')?.value   || '2025-12-31';
   const dataMode = getDataSource();
 
   const COLORS = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4'];
   const tbody = document.getElementById('cmp-table-body');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-slate-400">正在并发获取各标的行情...</td></tr>';
+  document.getElementById('svg-compare').innerHTML = '';
+  document.getElementById('svg-heatmap').innerHTML = '';
+  document.getElementById('compare-legend').innerHTML = '';
+  renderComparisonMeta(null, null);
 
   // 调用后端多股对比 API（失败时 callApi 返回 null，不构造任何模拟数据）
   const result = await callApi('/comparison', {
@@ -1517,18 +2037,19 @@ async function runComparison() {
       start: startVal,
       end: endVal,
       data_mode: dataMode
-    })
+    }),
+    signal: AbortSignal.timeout(120000),
   });
 
   if (!result || !Array.isArray(result.stocks) || !result.stocks.length) {
     const msg = window._lastApiError || '后端未返回可用的对比数据';
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-sm text-red-600">多股对比失败：${msg}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-sm text-red-600">多股对比失败：${escapeHtml(msg)}</td></tr>`;
     }
     const legend = document.getElementById('compare-legend');
     if (legend) legend.innerHTML = '';
     renderComparisonMeta(null, msg);
-    return;
+    return false;
   }
 
   // 绘制归一化收益曲线（所有股票共享后端对齐后的交易日）
@@ -1570,6 +2091,7 @@ async function runComparison() {
   }).join('');
 
   renderComparisonMeta(result, null);
+  return true;
 }
 
 /** 渲染多股对比的数据来源 / 状态 / 失败标的，全部来自后端字段 */
@@ -1584,7 +2106,7 @@ function renderComparisonMeta(result, errorMsg) {
   }
   const parts = [];
   parts.push(`来源：<span class="num text-slate-700">${result.source || '未知'}</span>`);
-  parts.push(`状态：<span class="num text-slate-700">${result.data_status || '未知'}</span>`);
+  parts.push(`状态：<span class="num text-slate-700">${formatDataStatusText(result.data_status, result)}</span>`);
   parts.push(`交易日：<span class="num text-slate-700">${result.trading_days ?? '—'}</span>`);
   parts.push(`更新时间：<span class="num text-slate-700">${result.updated_at || '—'}</span>`);
   if (result.fallback_reason) {
@@ -1643,12 +2165,18 @@ async function sendChatBackend(userText) {
       <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 text-sm">🤖</div>
       <div class="bg-white border border-slate-200 rounded-lg px-4 py-3 max-w-2xl text-sm leading-relaxed text-slate-700 min-w-[80px]">
         <span class="agent-cursor inline-block w-2 h-4 bg-blue-400 rounded-sm animate-pulse align-middle"></span>
+        <span class="ml-2 text-slate-500" data-chat-progress>正在识别意图并调用后端工具（0 秒）</span>
       </div>
     </div>`);
   scrollChatBottom();
 
   const bubble = document.querySelector(`#${msgId} > div:last-child`);
   const t0 = performance.now();
+  const progress = bubble.querySelector('[data-chat-progress]');
+  const progressTimer = setInterval(() => {
+    const seconds = Math.floor((performance.now() - t0) / 1000);
+    if (progress) progress.textContent = `正在执行 Agent / Tool / Guardrail（${seconds} 秒）`;
+  }, 1000);
 
   // callApi 失败时返回 null（不抛异常），此处必须显式处理，不做任何 Mock 回退
   const res = await callApi('/chat', {
@@ -1660,6 +2188,7 @@ async function sendChatBackend(userText) {
       data_mode: getDataSource()
     })
   });
+  clearInterval(progressTimer);
   const elapsedMs = Math.round(performance.now() - t0);
 
   if (!res) {
@@ -1810,7 +2339,7 @@ async function testApiConnection() {
   statusEl.className = 'text-xs text-blue-600';
 
   try {
-    const resp = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(5000) });
+    const resp = await authFetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(5000) });
     const data = await resp.json();
     statusEl.textContent = `✅ ${data.status} v${data.version || '?'}`;
     statusEl.className = 'text-xs text-green-600';
@@ -1835,9 +2364,13 @@ async function startDeepResearch() {
   // 2. 清理旧状态（包括 thread_id、轮询定时器、旧卡片、旧审批状态）
   hideAllDeepSections();
   currentThreadId = null;
-  if (window.pollTimer) {
-    clearTimeout(window.pollTimer);
-    window.pollTimer = null;
+  if (pollingTimer) {
+    clearTimeout(pollingTimer);
+    pollingTimer = null;
+  }
+  if (researchElapsedTimer) {
+    clearInterval(researchElapsedTimer);
+    researchElapsedTimer = null;
   }
 
   // 3. 禁用按钮，显示加载
@@ -1846,11 +2379,25 @@ async function startDeepResearch() {
   const loadingText = document.getElementById('deep-loading-text');
   loadingEl.classList.remove('hidden');
   loadingText.textContent = `正在启动深度投研工作流 (${symbol}, ${dataMode})...`;
+  researchStartedAt = performance.now();
+  document.getElementById('deep-status-card').classList.remove('hidden');
+  document.getElementById('status-symbol').textContent = symbol;
+  document.getElementById('status-thread-id').textContent = '正在分配...';
+  document.getElementById('status-duration').textContent = '0.0s';
+  updateStatusBadge('pending');
+  researchElapsedTimer = setInterval(() => {
+    const elapsed = (performance.now() - researchStartedAt) / 1000;
+    const durationEl = document.getElementById('status-duration');
+    if (durationEl) durationEl.textContent = `${elapsed.toFixed(1)}s · 后端处理中`;
+  }, 250);
 
   try {
     // 4. 发送 POST /research/{symbol}?data_mode=xxx
     const url = `${API_BASE}/research/${encodeURIComponent(symbol)}?data_mode=${encodeURIComponent(dataMode)}`;
-    const response = await fetch(url, { method: 'POST' });
+    const response = await authFetch(url, {
+      method: 'POST',
+      signal: AbortSignal.timeout(120000)
+    });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: response.statusText }));
@@ -1869,7 +2416,7 @@ async function startDeepResearch() {
     // 7. 显示状态卡片
     document.getElementById('status-symbol').textContent = symbol;
     document.getElementById('status-thread-id').textContent = thread_id;
-    document.getElementById('status-duration').textContent = `${duration_s.toFixed(2)}s`;
+    document.getElementById('status-duration').textContent = formatDuration(duration_s);
     updateStatusBadge(status);
     document.getElementById('deep-status-card').classList.remove('hidden');
 
@@ -1883,7 +2430,7 @@ async function startDeepResearch() {
       // 终态，不需要轮询
     } else {
       // 其他状态启动轮询
-      pollResearchState(thread_id);
+      await pollResearchState(thread_id);
     }
 
   } catch (error) {
@@ -1891,6 +2438,10 @@ async function startDeepResearch() {
     showError(`启动失败: ${error.message}`);
   } finally {
     // 10. 恢复按钮，隐藏加载
+    if (researchElapsedTimer) {
+      clearInterval(researchElapsedTimer);
+      researchElapsedTimer = null;
+    }
     loadingEl.classList.add('hidden');
     btn.disabled = false;
   }
@@ -1908,6 +2459,7 @@ function updateWorkflowVisualization(state) {
     { key: 'industry_agent', label: '🏭 Industry Agent', stateKey: 'industry_analysis' },
     { key: 'market_regime_agent', label: '🌏 Market Regime Agent', stateKey: 'market_regime' },
     { key: 'synthesis_agent', label: '🤖 Synthesis Agent', stateKey: 'synthesis' },
+    { key: 'debate_approval', label: '🗣️ 辩论后人工复核', stateKey: 'interrupt_payload' },
     { key: 'trader_agent', label: '💼 Trader Agent', stateKey: 'trade_signal' },
     { key: 'human_approval', label: '👤 Human Approval', stateKey: 'interrupt_payload' },
     { key: 'risk_manager', label: '⚠️ Risk Manager', stateKey: 'risk_result' },
@@ -1928,6 +2480,12 @@ function updateWorkflowVisualization(state) {
     if (e && e.node) traceByNode[e.node] = e;   // 同名节点取最后一次执行
   });
   const isTerminal = ['completed', 'blocked', 'no_trade', 'failed'].includes(state.status);
+  const isPreflightInterrupt = state.status === 'interrupted'
+    && state.interrupt_payload?.reason === 'preflight_manual_review';
+  const isDebateInterrupt = state.status === 'interrupted'
+    && state.interrupt_payload?.type === 'debate_review';
+  const isTraderInterrupt = state.status === 'interrupted'
+    && state.interrupt_payload?.type === 'har_approval';
   // 图是否已运行过（没有任何轨迹说明后端未返回 trace，退化为按数据判断）
   const hasTrace = traceEntries.length > 0 || executed.size > 0;
 
@@ -1935,12 +2493,16 @@ function updateWorkflowVisualization(state) {
     let icon, statusText, colorClass;
     const entry = traceByNode[node.key];
     const ran = executed.has(node.key);
-    const durTxt = entry && entry.duration_s != null ? ` · ${Number(entry.duration_s).toFixed(3)}s` : '';
+    const durTxt = entry && entry.duration_s != null ? ` · ${formatDuration(entry.duration_s)}` : '';
     const errTxt = entry && entry.error ? `：${entry.error}` : '';
 
     // human_approval：完全依据真实中断/执行历史，从不猜测
     if (node.key === 'human_approval') {
-      if (state.status === 'interrupted') {
+      if (isPreflightInterrupt || isDebateInterrupt) {
+        icon = '⏭️';
+        statusText = '跳过（当前不是 Trader 仓位审批）';
+        colorClass = 'bg-gray-50 border-gray-200';
+      } else if (isTraderInterrupt) {
         icon = '⏸️';
         statusText = '等待人工审批（图已在 interrupt 处暂停）';
         colorClass = 'bg-orange-50 border-orange-300';
@@ -1973,6 +2535,16 @@ function updateWorkflowVisualization(state) {
       }
     }
     // 其余节点：优先用真实 trace，无 trace 时才退化为按状态数据判断
+    else if (node.key === 'trading_harness' && isPreflightInterrupt) {
+      icon = '⏸️';
+      statusText = '预检完成，等待人工确认';
+      colorClass = 'bg-orange-50 border-orange-300';
+    }
+    else if (node.key === 'debate_approval' && isDebateInterrupt) {
+      icon = '⏸️';
+      statusText = '一致性或偏见检查要求人工复核';
+      colorClass = 'bg-orange-50 border-orange-300';
+    }
     else if (hasTrace) {
       if (ran) {
         const st = entry && entry.status ? entry.status : 'ok';
@@ -2042,7 +2614,7 @@ function renderTechnicalAnalysis(data) {
   const source = escapeHtml(data.source || '-');
   const updated = escapeHtml(data.updated_at || '-');
   const disclaimer = escapeHtml(data.disclaimer || '');
-  const statusBadge = renderDataStatusBadge(data.data_status, data.fallback_reason);
+  const statusBadge = renderDataStatusBadge(data.data_status, data.fallback_reason, data);
 
   return `<div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
     <h4 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
@@ -2068,22 +2640,47 @@ function renderTechnicalAnalysis(data) {
 }
 
 // 渲染数据状态徽标
-function renderDataStatusBadge(dataStatus, fallbackReason) {
+function renderDataStatusBadge(dataStatus, fallbackReason, data = {}) {
+  const effectiveStatus = deriveEffectiveDataStatus(dataStatus, data);
   const statusConfig = {
     'live': { label: '实时数据', color: 'bg-green-100 text-green-700', icon: '🟢' },
     'offline_sample': { label: '离线样例', color: 'bg-blue-100 text-blue-700', icon: '🔵' },
     'fallback': { label: '已降级', color: 'bg-orange-100 text-orange-700', icon: '🟠' },
+    'historical': { label: '历史行情', color: 'bg-slate-100 text-slate-700', icon: '🔵' },
+    'partial': { label: '部分可用', color: 'bg-orange-100 text-orange-700', icon: '🟠' },
+    'stale': { label: '数据可能过期', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' },
     'unavailable': { label: '数据不可用', color: 'bg-red-100 text-red-700', icon: '🔴' }
   };
 
-  const config = statusConfig[dataStatus] || statusConfig['unavailable'];
-  const reasonHtml = (dataStatus === 'fallback' || dataStatus === 'unavailable') && fallbackReason
+  const config = statusConfig[effectiveStatus] || statusConfig['unavailable'];
+  const reasonHtml = (['fallback', 'partial', 'stale', 'unavailable'].includes(effectiveStatus)) && fallbackReason
     ? `<div class="text-xs mt-1">原因: ${escapeHtml(fallbackReason)}</div>`
     : '';
 
   return `<div class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${config.color}">
     <span>${config.icon}</span><span>${config.label}</span>
   </div>${reasonHtml}`;
+}
+
+function deriveEffectiveDataStatus(dataStatus, data = {}) {
+  let effectiveStatus = dataStatus;
+  const source = String(data.source || '').toLowerCase();
+  const note = String(data.regime_note || '').toLowerCase();
+  // 日线历史接口不是实时行情；部分字段缺失或明确披露过期时不能显示绿色实时徽标。
+  if (effectiveStatus === 'live' && /hist|daily/.test(source)) effectiveStatus = 'historical';
+  if (effectiveStatus === 'live' && data.prosperity_signal === 'unknown'
+      && data.fund_flow_3d_cny == null) effectiveStatus = 'partial';
+  if (effectiveStatus === 'live' && /最后披露|距今|停止逐日/.test(note)) effectiveStatus = 'stale';
+  return effectiveStatus || 'unavailable';
+}
+
+function formatDataStatusText(dataStatus, data = {}) {
+  const labels = {
+    live: '实时数据', historical: '在线历史日线', offline_sample: '离线样例',
+    fallback: '已降级', partial: '部分可用', stale: '数据可能过期', unavailable: '不可用',
+  };
+  const effective = deriveEffectiveDataStatus(dataStatus, data);
+  return labels[effective] || effective;
 }
 
 // 渲染基本面分析 Agent 结果
@@ -2098,7 +2695,23 @@ function renderFundamentalAnalysis(data) {
   const source = escapeHtml(data.source || '-');
   const updated = escapeHtml(data.updated_at || '-');
   const disclaimer = escapeHtml(data.disclaimer || '');
-  const statusBadge = renderDataStatusBadge(data.data_status, data.fallback_reason);
+  const statusBadge = renderDataStatusBadge(data.data_status, data.fallback_reason, data);
+
+  // field_status 映射：若后端返回，则用字段级状态渲染 N/A + 原因
+  const fs = data.field_status || {};
+  function _fieldBadge(key, display) {
+    const s = fs[key];
+    if (!s) return display;
+    if (s.status === 'unavailable') {
+      const note = s.note ? ` <span class="text-red-500 text-xs">(${escapeHtml(s.note)})</span>` : '';
+      return `<span class="text-red-500">N/A</span>${note}`;
+    }
+    if (s.status === 'not_applicable') {
+      const note = s.note ? ` <span class="text-slate-400 text-xs">(${escapeHtml(s.note)})</span>` : '';
+      return `<span class="text-slate-400">N/A</span>${note}`;
+    }
+    return display;
+  }
 
   return `<div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
     <h4 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
@@ -2106,10 +2719,10 @@ function renderFundamentalAnalysis(data) {
     </h4>
     <div class="mb-2">${statusBadge}</div>
     <div class="grid grid-cols-2 gap-2 text-sm mb-3">
-      <div><span class="text-slate-600">市盈率(PE TTM):</span> <span class="font-semibold">${pe}</span></div>
-      <div><span class="text-slate-600">市净率(PB):</span> <span class="font-semibold">${pb}</span></div>
-      <div><span class="text-slate-600">ROE:</span> <span class="font-semibold">${roe}</span></div>
-      <div><span class="text-slate-600">总市值:</span> <span class="font-semibold">${mv}</span></div>
+      <div><span class="text-slate-600">市盈率(PE TTM):</span> <span class="font-semibold">${_fieldBadge('pe_ttm', pe)}</span></div>
+      <div><span class="text-slate-600">市净率(PB):</span> <span class="font-semibold">${_fieldBadge('pb', pb)}</span></div>
+      <div><span class="text-slate-600">ROE:</span> <span class="font-semibold">${_fieldBadge('roe_pct', roe)}</span></div>
+      <div><span class="text-slate-600">总市值:</span> <span class="font-semibold">${_fieldBadge('total_market_value_cny', mv)}</span></div>
       <div class="col-span-2"><span class="text-slate-600">估值信号:</span> <span class="font-semibold">${valuation}</span></div>
       ${valuationNote ? `<div class="col-span-2 text-xs text-slate-500">${valuationNote}</div>` : ''}
     </div>
@@ -2125,7 +2738,7 @@ function renderFundamentalAnalysis(data) {
 function renderIndustryAnalysis(data) {
   // 使用真实后端字段：prosperity_signal, prosperity_note, top_stocks, fund_flow_3d_cny
   const industry = escapeHtml(data.industry_name || 'N/A');
-  const prosperity = escapeHtml(data.prosperity_signal || 'N/A');
+  const prosperity = escapeHtml(formatResearchValue(data.prosperity_signal));
   const prosperityNote = escapeHtml(data.prosperity_note || '');
   const fundFlow = data.fund_flow_3d_cny != null ? (data.fund_flow_3d_cny / 1e8).toFixed(2) + '亿' : 'N/A';
 
@@ -2142,7 +2755,7 @@ function renderIndustryAnalysis(data) {
   const source = escapeHtml(data.source || '-');
   const updated = escapeHtml(data.updated_at || '-');
   const disclaimer = escapeHtml(data.disclaimer || '');
-  const statusBadge = renderDataStatusBadge(data.data_status, data.fallback_reason);
+  const statusBadge = renderDataStatusBadge(data.data_status, data.fallback_reason, data);
 
   return `<div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
     <h4 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
@@ -2167,8 +2780,8 @@ function renderIndustryAnalysis(data) {
 // 渲染市场状态 Agent 结果
 function renderMarketRegime(data) {
   // 使用真实后端字段：regime, risk_appetite, index_code, index_close, index_change_pct_5d, northbound_flow_cny
-  const regime = escapeHtml(data.regime || 'N/A');
-  const riskAppetite = escapeHtml(data.risk_appetite || 'N/A');
+  const regime = escapeHtml(formatResearchValue(data.regime));
+  const riskAppetite = escapeHtml(formatResearchValue(data.risk_appetite));
   const indexCode = escapeHtml(data.index_code || 'N/A');
   const indexClose = data.index_close != null ? data.index_close.toFixed(2) : 'N/A';
   const change5d = data.index_change_pct_5d != null ? data.index_change_pct_5d.toFixed(2) + '%' : 'N/A';
@@ -2177,7 +2790,7 @@ function renderMarketRegime(data) {
   const source = escapeHtml(data.source || '-');
   const updated = escapeHtml(data.updated_at || '-');
   const disclaimer = escapeHtml(data.disclaimer || '');
-  const statusBadge = renderDataStatusBadge(data.data_status, data.fallback_reason);
+  const statusBadge = renderDataStatusBadge(data.data_status, data.fallback_reason, data);
 
   return `<div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
     <h4 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
@@ -2211,6 +2824,7 @@ function showSynthesis(synthesis, state) {
   const confidence = formatConfidence(synthesis.confidence);
   const reasoning = escapeHtml(synthesis.reasoning || synthesis.summary || '');
   const targetPrice = synthesis.target_price || synthesis.price_target;
+  const debateRounds = Array.isArray(synthesis.debate?.rounds) ? synthesis.debate.rounds.length : 0;
 
   // 计算数据完整度
   const agents = ['technical_analysis', 'fundamental_analysis', 'industry_analysis', 'market_regime'];
@@ -2249,6 +2863,7 @@ function showSynthesis(synthesis, state) {
       <span>🎯</span> 综合研判结果
     </h4>
     ${completenessWarning}
+    ${debateRounds ? `<div class="mb-3 text-sm text-blue-700">多空辩论已执行（${debateRounds}轮）</div>` : ''}
     <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
       <div class="bg-white rounded-lg p-3 text-center">
         <div class="text-xs text-slate-600 mb-1">信号</div>
@@ -2277,18 +2892,53 @@ function showApprovalPanel(state) {
   if (!panel) return;
   panel.classList.remove('hidden');
 
-  const reason = state.interrupt_payload?.reason || '仓位建议超过自动执行上限，需要人工审批';
+  const payload = state.interrupt_payload || {};
+  const isPreflight = payload.reason === 'preflight_manual_review' || payload.type === 'manual_review';
+  const isDebate = payload.type === 'debate_review';
+  const title = document.getElementById('approval-title');
+  if (title) title.textContent = isDebate
+    ? '多空辩论结果需要人工复核'
+    : (isPreflight ? '交易预检需要人工确认' : '交易仓位需要人工审批');
+  const reason = isDebate
+    ? '综合研判的一致性或偏见检查未通过，请核对以下阻断原因。'
+    : (isPreflight
+        ? 'Risk Manager 已完成，Trading Harness 预检发现需要人工复核的项目。'
+        : (payload.reason || '仓位建议超过自动执行上限，需要人工审批'));
   document.getElementById('approval-reason').textContent = reason;
 
   const tradeSignal = state.trade_signal || {};
-  const infoHtml = `
+  const suggestedPosition = tradeSignal.position_pct_suggestion;
+  const approvedPosition = state.risk_result?.approved_position_pct;
+  const stopDistance = state.risk_result?.stop_distance_pct;
+  const estimatedLoss = state.risk_result?.estimated_loss_pct;
+  const riskBudget = state.risk_result?.risk_budget_pct;
+  const checks = Array.isArray(payload.preflight?.checks) ? payload.preflight.checks : [];
+  const checksHtml = checks.length ? `
+    <div class="pt-3 mt-3 border-t border-slate-200">
+      <div class="font-medium mb-2">Pre-Flight 检查明细</div>
+      ${checks.map(check => `<div class="flex items-start gap-2 mb-1">
+        <span>${check.passed ? '✅' : '⚠️'}</span>
+        <span><strong>${escapeHtml(check.check_name || '检查项')}：</strong>${escapeHtml(check.message || '')}</span>
+      </div>`).join('')}
+    </div>` : '';
+  const blockingReasons = Array.isArray(payload.blocking_reasons) ? payload.blocking_reasons : [];
+  const debateHtml = `<div class="font-medium mb-2">阻断原因</div>${blockingReasons.length
+    ? blockingReasons.map(item => `<div class="flex items-start gap-2 mb-1"><span>⚠️</span><span>${escapeHtml(item)}</span></div>`).join('')
+    : '<div class="text-slate-500">后端未返回详细原因</div>'}`;
+  const tradeHtml = `
     <div class="flex justify-between"><span class="font-medium">方向:</span><span>${formatSignal(tradeSignal.signal)}</span></div>
-    <div class="flex justify-between"><span class="font-medium">建议仓位:</span><span class="text-lg font-bold text-orange-600">${tradeSignal.position_pct_suggestion || '-'}%</span></div>
-    <div class="flex justify-between"><span class="font-medium">置信度:</span><span>${formatConfidence(tradeSignal.confidence || state.confidence)}</span></div>
+    <div class="flex justify-between"><span class="font-medium">建议仓位:</span><span class="text-lg font-bold text-orange-600">${suggestedPosition == null ? '-' : Number(suggestedPosition).toFixed(1) + '%'}</span></div>
+    <div class="flex justify-between"><span class="font-medium">风控批准仓位:</span><span>${approvedPosition == null ? '-' : Number(approvedPosition).toFixed(1) + '%'}</span></div>
+    <div class="flex justify-between"><span class="font-medium">止损距离:</span><span>${stopDistance == null ? '-' : Number(stopDistance).toFixed(2) + '%'}</span></div>
+    <div class="flex justify-between"><span class="font-medium">预计账户损失:</span><span>${estimatedLoss == null ? '-' : Number(estimatedLoss).toFixed(2) + '%'}</span></div>
+    <div class="flex justify-between"><span class="font-medium">单笔风险预算:</span><span>${riskBudget == null ? '-' : Number(riskBudget).toFixed(2) + '%'}</span></div>
+    <div class="flex justify-between"><span class="font-medium">置信度:</span><span>${formatConfidence(tradeSignal.confidence ?? state.confidence)}</span></div>
     <div class="flex justify-between"><span class="font-medium">理由:</span><span class="text-xs">${escapeHtml(tradeSignal.rationale || '-')}</span></div>
+    ${checksHtml}
+    <div class="pt-3 mt-3 border-t border-slate-200 text-xs text-slate-500">审批目的：确认研究建议是否允许继续通过工作流。批准只会生成最终研究结论，不连接券商、不执行真实下单。</div>
   `;
 
-  document.getElementById('approval-trade-info').innerHTML = infoHtml;
+  document.getElementById('approval-trade-info').innerHTML = isDebate ? debateHtml : tradeHtml;
 }
 
 // 提交审批决策
@@ -2301,16 +2951,23 @@ async function submitApproval(decision) {
   // 禁用按钮防止重复点击
   const approveBtn = document.getElementById('approval-approve-btn');
   const rejectBtn = document.getElementById('approval-reject-btn');
+  const approveHtml = approveBtn?.innerHTML || '';
+  const rejectHtml = rejectBtn?.innerHTML || '';
   if (approveBtn) approveBtn.disabled = true;
   if (rejectBtn) rejectBtn.disabled = true;
+  if (decision === 'approve' && approveBtn) approveBtn.innerHTML = '⏳ 正在批准…';
+  if (decision === 'reject' && rejectBtn) rejectBtn.innerHTML = '⏳ 正在拒绝…';
+  document.getElementById('deep-loading').classList.remove('hidden');
+  document.getElementById('deep-loading-text').textContent = '审批决策已提交，LangGraph 正在继续执行...';
 
   try {
-    const resp = await fetch(`${API_BASE}/research/${currentThreadId}/resume?decision=${decision}`, {
+    const resp = await authFetch(`${API_BASE}/research/${currentThreadId}/resume?decision=${decision}`, {
       method: 'POST',
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(60000)
     });
 
     if (resp.status === 409) {
+      document.getElementById('deep-loading').classList.add('hidden');
       alert('当前状态无法 resume（可能已完成或不在 interrupt 状态）');
       return;
     }
@@ -2322,20 +2979,23 @@ async function submitApproval(decision) {
     // 隐藏审批面板
     document.getElementById('approval-panel').classList.add('hidden');
 
-    // 显示加载提示
-    document.getElementById('deep-loading').classList.remove('hidden');
-    document.getElementById('deep-loading-text').textContent = '正在处理审批决策...';
-
-    // 继续轮询直到完成
-    await sleep(2000);
+    // 继续轮询直到完成；轮询器保证同一时间只有一个状态请求。
     await pollResearchState(currentThreadId);
 
   } catch (e) {
-    alert('审批提交失败: ' + e.message);
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      document.getElementById('deep-loading-text').textContent = '审批响应较慢，正在从 checkpoint 查询最终状态...';
+      await pollResearchState(currentThreadId);
+    } else {
+      document.getElementById('deep-loading').classList.add('hidden');
+      alert('审批提交失败: ' + e.message);
+    }
   } finally {
     if (approveBtn) approveBtn.disabled = false;
     if (rejectBtn) rejectBtn.disabled = false;
-    document.getElementById('deep-loading').classList.add('hidden');
+    if (approveBtn) approveBtn.innerHTML = approveHtml;
+    if (rejectBtn) rejectBtn.innerHTML = rejectHtml;
+    // 终态由 loadAndDisplayState 统一隐藏加载提示。
   }
 }
 
@@ -2402,10 +3062,9 @@ function showResumeDialog() {
 // 页面加载时初始化
 window.addEventListener('DOMContentLoaded', () => {
   updateApiDisplay();
-  // 自动跳过登录页面（开发模式）
-  setTimeout(() => {
-    doLogin();
-  }, 100);
+  initializeAuthentication();
+  initializeWeatherRegions();
+  switchWeatherMode(document.getElementById('weather-data-mode')?.value || 'online');
 });
 
 // 隐藏所有深度投研区域
@@ -2417,10 +3076,18 @@ function hideAllDeepSections() {
   });
 }
 
-// 同步数据源选择（左侧 radio 与深度投研下拉框互相同步）
+// 同步全局数据源选择与各业务页面的模式控件。
 function syncDataSource(mode) {
   // 统一使用 offline 和 auto 两种值
   const validMode = (mode === 'offline' || mode === 'auto') ? mode : 'offline';
+
+  if (validMode !== activeDataMode) {
+    activeDataMode = validMode;
+    // 不允许离线样例价和联网报价跨模式复用，避免数据源切换后误认旧价。
+    broker.tickers = {};
+    const symbol = (document.getElementById('st-symbol')?.value.trim() || '600519').toUpperCase();
+    renderTickerPanel(symbol);
+  }
 
   // 同步左侧 radio
   const radios = document.querySelectorAll('input[name="datasource"]');
@@ -2432,6 +3099,11 @@ function syncDataSource(mode) {
   const selectEl = document.getElementById('deep-data-mode');
   if (selectEl) {
     selectEl.value = validMode;
+  }
+
+  const analysisSelect = document.getElementById('analysis-data-mode');
+  if (analysisSelect) {
+    analysisSelect.value = validMode;
   }
 }
 
@@ -2457,7 +3129,22 @@ function updateStatusCard(data) {
 
   _set('status-symbol', data.symbol || '-');
   _set('status-thread-id', data.thread_id || '-');
-  _set('status-duration', data.duration_s ? `${data.duration_s.toFixed(1)}s` : '-');
+  _set('status-duration', formatDuration(data.duration_s));
+
+  const requested = data.requested_data_mode || data.data_mode;
+  const effective = data.effective_data_mode || data.data_mode;
+  const modeLabels = { auto: '自动（联网优先）', offline: '离线样例' };
+  const quality = data.data_quality_summary || {};
+  const qualityLabel = quality.passed === true
+    ? '数据质量通过'
+    : (quality.passed === false ? '数据质量需人工复核' : '数据质量待评估');
+  const routed = requested === 'auto' && effective === 'offline'
+    ? '（样例代码自动路由）'
+    : '';
+  const actionLabel = data.final_action === 'execute' && quality.passed === false
+    ? '人工批准后继续（不会真实下单）'
+    : data.final_action;
+  _set('status-data-context', `请求模式：${modeLabels[requested] || requested || '-'}；实际模式：${modeLabels[effective] || effective || '-'}${routed}；${qualityLabel}${actionLabel ? `；最终动作：${actionLabel}` : ''}`);
 
   const badge = document.getElementById('status-badge');
   if (badge) {
@@ -2469,41 +3156,34 @@ function updateStatusCard(data) {
 // 轮询研究状态
 async function pollResearchState(threadId, maxPolls = 60) {
   let polls = 0;
-  const pollInterval = 3000; // 3秒
-
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-  }
+  if (pollingTimer) clearTimeout(pollingTimer);
+  pollingTimer = null;
 
   const doPoll = async () => {
+    if (currentThreadId !== threadId) return;
     polls++;
     if (polls > maxPolls) {
-      clearInterval(pollingInterval);
-      showError('轮询超时，请刷新页面或使用"恢复查询"功能');
+      showError('工作流仍在运行，已停止自动轮询；可点击“恢复查询”继续查看');
       return;
     }
 
-    try {
-      await loadAndDisplayState(threadId);
-    } catch (e) {
-      console.warn('[Poll]', e.message);
+    const state = await loadAndDisplayState(threadId);
+    const terminal = state && ['completed', 'blocked', 'no_trade', 'failed', 'interrupted'].includes(state.status);
+    if (!terminal && currentThreadId === threadId) {
+      // 上一次请求完成后才安排下一次，避免 setInterval 造成请求重叠和超时。
+      pollingTimer = setTimeout(doPoll, 2000);
+    } else {
+      pollingTimer = null;
     }
   };
 
-  // 立即执行一次
   await doPoll();
-
-  // 如果还未完成，启动定时轮询
-  const state = await getState(threadId);
-  if (state && !['completed', 'blocked', 'no_trade', 'failed', 'not_found'].includes(state.status)) {
-    pollingInterval = setInterval(doPoll, pollInterval);
-  }
 }
 
 // 获取状态（不更新UI）
 async function getState(threadId) {
   try {
-    const resp = await fetch(`${API_BASE}/research/${threadId}/state`, {
+    const resp = await authFetch(`${API_BASE}/research/${threadId}/state`, {
       signal: AbortSignal.timeout(10000)
     });
     if (!resp.ok) return null;
@@ -2517,7 +3197,7 @@ async function getState(threadId) {
 // 加载并显示状态
 async function loadAndDisplayState(threadId) {
   try {
-    const resp = await fetch(`${API_BASE}/research/${threadId}/state`, {
+    const resp = await authFetch(`${API_BASE}/research/${threadId}/state`, {
       signal: AbortSignal.timeout(10000)
     });
 
@@ -2529,10 +3209,8 @@ async function loadAndDisplayState(threadId) {
 
     // 停止轮询如果已完成
     if (['completed', 'blocked', 'no_trade', 'failed', 'not_found'].includes(state.status)) {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-      }
+      if (pollingTimer) clearTimeout(pollingTimer);
+      pollingTimer = null;
       document.getElementById('deep-loading').classList.add('hidden');
     }
 
@@ -2541,7 +3219,12 @@ async function loadAndDisplayState(threadId) {
       symbol: state.symbol,
       thread_id: state.thread_id,
       status: state.status,
-      duration_s: 0
+      duration_s: state.duration_s,
+      data_mode: state.data_mode,
+      requested_data_mode: state.requested_data_mode,
+      effective_data_mode: state.effective_data_mode,
+      data_quality_summary: state.data_quality_summary,
+      final_action: state.final_action
     });
 
     // 更新工作流可视化
@@ -2564,8 +3247,16 @@ async function loadAndDisplayState(threadId) {
       showError('Thread ID 不存在或已过期');
     }
 
+    return state;
   } catch (e) {
+    // 单次轮询超时不代表工作流失败；下一轮继续查询，避免误报 signal timed out。
+    if (e.name === 'AbortError' || /timeout|timed out/i.test(e.message || '')) {
+      const text = document.getElementById('deep-loading-text');
+      if (text) text.textContent = '后端仍在处理中，正在等待下一次状态更新...';
+      return null;
+    }
     showError('加载状态失败: ' + e.message);
+    return null;
   }
 }
 
@@ -2584,7 +3275,14 @@ function downloadDeepReport() {
    9. Page 5：策略回测
 ═══════════════════════════════════════════════════════════════ */
 async function runBacktest() {
-  if (!validateDateRange('bt-start', 'bt-end')) return;
+  return withOperationFeedback(
+    'backtest', 'backtest-run-btn', 'backtest-run-status',
+    '正在加载历史行情并运行策略', runBacktestTask,
+  );
+}
+
+async function runBacktestTask() {
+  if (!validateDateRange('bt-start', 'bt-end')) return false;
   const sym  = (document.getElementById('bt-symbol').value.trim() || 'DEMO001').toUpperCase();
   const cap  = parseFloat(document.getElementById('bt-capital')?.value) || 1000000;
   const startVal = document.getElementById('bt-start')?.value || '2025-01-02';
@@ -2592,6 +3290,10 @@ async function runBacktest() {
   const dataMode = getDataSource();
 
   const tbody = document.getElementById('bt-trades-body');
+  document.getElementById('bt-metrics').innerHTML = '<div class="col-span-5 text-center py-6 text-slate-400">正在加载历史行情并运行策略...</div>';
+  document.getElementById('bt-meta').textContent = '';
+  document.getElementById('bt-trades-body').innerHTML = '';
+  document.getElementById('svg-equity').innerHTML = '';
 
   // 调用后端回测 API（失败时 callApi 返回 null，不构造任何模拟净值）
   const result = await callApi('/backtest', {
@@ -2613,7 +3315,7 @@ async function runBacktest() {
     if (tbody) tbody.innerHTML = '';
     drawLineChart('svg-equity', [], {});
     renderBacktestMeta(null, msg);
-    return;
+    return false;
   }
 
   window._backtestResult = result;
@@ -2670,6 +3372,7 @@ async function runBacktest() {
 
   renderBacktestMeta(result, null);
   renderBacktestReport(result);
+  return true;
 }
 
 /** 渲染回测数据来源 / 状态 / 交易日与预热行数，全部取自后端字段 */
@@ -2682,12 +3385,20 @@ function renderBacktestMeta(result, errorMsg) {
   }
   const parts = [
     `来源：<span class="num text-slate-700">${result.source || '未知'}</span>`,
-    `状态：<span class="num text-slate-700">${result.data_status || '未知'}</span>`,
+    `状态：<span class="num text-slate-700">${formatDataStatusText(result.data_status, result)}</span>`,
     `区间：<span class="num text-slate-700">${result.start_date} ~ ${result.end_date}</span>`,
     `交易日：<span class="num text-slate-700">${result.trading_days ?? '—'}</span>`,
     `预热行数(不计入)：<span class="num text-slate-700">${result.warmup_rows_used ?? '—'}</span>`,
     `更新时间：<span class="num text-slate-700">${result.updated_at || '—'}</span>`,
   ];
+  const requestedStart = document.getElementById('bt-start')?.value;
+  const requestedEnd = document.getElementById('bt-end')?.value;
+  if (requestedStart && requestedEnd) {
+    parts.splice(2, 0, `请求自然日：<span class="num text-slate-700">${requestedStart} ~ ${requestedEnd}</span>`);
+  }
+  if (Number(result.trading_days) < 20) {
+    parts.push('<span class="text-amber-600">有效交易日少于 20 天，MA5/MA20 信号和交易次数仅供参考；建议扩大区间。</span>');
+  }
   if (result.fallback_reason) {
     parts.push(`<span class="text-amber-600">降级原因：${result.fallback_reason}</span>`);
   }
@@ -2754,60 +3465,112 @@ function updateQtyHint() {
 }
 
 async function placeOrder() {
+  if (brokerOperationBusy) return;
   const sym  = (document.getElementById('st-symbol')?.value.trim() || '600519').toUpperCase();
   const side = document.querySelector('[name="st-side"]:checked')?.value || 'buy';
   const type = document.querySelector('[name="st-type"]:checked')?.value || 'market';
   const shares = parseInt(document.getElementById('st-qty')?.value) || 0;
   const lp   = parseFloat(document.getElementById('st-limit')?.value) || 0;
   const matchEl = document.getElementById('st-match-result');
+  const statusEl = document.getElementById('st-order-status');
+  const startedAt = performance.now();
+  const orderBtn = document.getElementById('place-order-btn');
+  const originalButton = orderBtn?.innerHTML || '';
+  const requestId = (globalThis.crypto?.randomUUID?.() || `paper-${Date.now()}`);
 
   if (shares <= 0) { alert('数量（股）必须为正整数'); return; }
 
-  // 市价单必须有真实报价才可成交，绝不用随机数补价
-  if (type === 'market' && !broker.tickers[sym]) {
-    await fetchLiveQuote(sym);
-  }
-
-  const ticker = broker.tickers[sym];
-  const execPrice = type === 'limit'
-    ? lp
-    : (ticker && Number.isFinite(Number(ticker.price)) ? Number(ticker.price) : NaN);
-
-  if (!Number.isFinite(execPrice) || execPrice <= 0) {
-    const msg = type === 'limit'
-      ? '限价单必须填写有效限价'
-      : `无法获取 ${sym} 的行情价格，市价单已拒绝（不使用任何模拟价格）`;
-    if (matchEl) matchEl.innerHTML = `<span class="text-red-500">⚠️ ${msg}</span>`;
-    alert(msg);
+  if (type === 'limit' && (!Number.isFinite(lp) || lp <= 0)) {
+    alert('限价单必须填写有效限价');
     return;
   }
-
-  // 买入：扣资金，加持仓（qty 单位为股）
-  if (side === 'buy') {
-    const cost = execPrice * shares;
-    if (cost > broker.cash) { alert('资金不足'); return; }
-    broker.cash -= cost;
-    if (!broker.positions[sym]) broker.positions[sym] = { sym, qty:0, avgCost:0 };
-    const pos = broker.positions[sym];
-    pos.avgCost = (pos.avgCost * pos.qty + cost) / (pos.qty + shares);
-    pos.qty += shares;
-  } else {
-    const pos = broker.positions[sym];
-    if (!pos || pos.qty < shares) { alert('持仓不足'); return; }
-    broker.cash += execPrice * shares;
-    pos.qty -= shares;
-    if (pos.qty === 0) delete broker.positions[sym];
+  brokerOperationBusy = true;
+  if (matchEl) matchEl.innerHTML = '';
+  if (orderBtn) { orderBtn.disabled = true; orderBtn.innerHTML = '⏳ 提交中…'; }
+  if (statusEl) statusEl.textContent = `正在校验账户并获取 ${sym} 可信报价...`;
+  try {
+    await ensurePaperAccount();
+    if (statusEl) statusEl.textContent = `报价就绪后将在本地 MockBroker 撮合，重复提交不会重复成交...`;
+    const resp = await authFetch(`${API_BASE}/paper-trading/accounts/${encodeURIComponent(brokerAccountId)}/orders`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({symbol:sym, side, quantity:shares, order_type:type,
+        limit_price:type==='limit'?lp:null, data_mode:getDataSource(), request_id:requestId}),
+      signal: AbortSignal.timeout(45000),
+    });
+    const body = await resp.json().catch(()=>({}));
+    if (!resp.ok) throw new Error(body.detail || `HTTP ${resp.status}`);
+    hydrateBroker(body);
+    if (body.quote) cacheQuote(body.quote);
+    renderTickerPanel(sym);
+    updateBrokerUI();
+    const quoteNote = body.quote_cache_hit
+      ? `，复用 ${Number(body.quote_age_s || 0).toFixed(1)} 秒内服务端报价`
+      : '，使用新获取的服务端报价';
+    const orderStatus = body.submitted_order_status;
+    if (statusEl && orderStatus === 'filled') {
+      statusEl.innerHTML = `<span class="text-green-600">✅ 已成交：${side === 'buy' ? '买入' : '卖出'} ${Number(body.submitted_order_filled_quantity || shares)} 股，成交价 ¥${Number(body.submitted_order_filled_price).toFixed(2)}（${escapeHtml(body.submitted_order_id || '订单号未返回')}${escapeHtml(quoteNote)}）</span>`;
+    } else if (statusEl && orderStatus === 'rejected') {
+      statusEl.innerHTML = `<span class="text-red-600">❌ 订单已拒绝：${escapeHtml(body.submitted_order_reject_reason || '不满足模拟撮合条件')}（${escapeHtml(body.submitted_order_id || '订单号未返回')}）</span>`;
+    } else if (statusEl) {
+      statusEl.innerHTML = `<span class="text-amber-600">⏳ 订单待成交：当前报价未满足限价条件（${escapeHtml(body.submitted_order_id || '订单号未返回')}）</span>`;
+    }
+  } catch (e) {
+    const message = (e.name === 'TimeoutError' || e.name === 'AbortError' || e.message === 'signal timed out')
+      ? '等待公共行情源超时。订单使用幂等键保护，可刷新账户确认结果后再重试。'
+      : e.message;
+    if (matchEl) matchEl.innerHTML = '';
+    if (statusEl) statusEl.innerHTML = `<span class="text-red-600">❌ 订单未完成：${escapeHtml(message)}</span>`;
+  } finally {
+    brokerOperationBusy = false;
+    if (orderBtn) { orderBtn.disabled = false; orderBtn.innerHTML = originalButton; }
+    restartBrokerAutoRefresh();
   }
+}
 
-  broker.orders.unshift({
-    id: 'ORD' + String(broker.orderSeq++).padStart(6,'0'),
-    sym, side, type, qty: shares, unit: 'shares',
-    price: execPrice.toFixed(2),
-    status: '已成交',
-    time: new Date().toLocaleTimeString('zh-CN'),
+async function ensurePaperAccount({ hydrate = true } = {}) {
+  if (brokerAccountId && brokerAccountLoaded) return;
+  if (brokerAccountId) {
+    const existing = await authFetch(`${API_BASE}/paper-trading/accounts/${encodeURIComponent(brokerAccountId)}`, { signal: AbortSignal.timeout(10000) });
+    if (existing.ok) {
+      const body = await existing.json();
+      brokerAccountLoaded = true;
+      if (hydrate) hydrateBroker(body);
+      return;
+    }
+  }
+  const created = await authFetch(`${API_BASE}/paper-trading/accounts`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({initial_cash:1000000})
+    , signal: AbortSignal.timeout(10000)
   });
+  if (!created.ok) throw new Error('无法创建后端模拟账户');
+  const body = await created.json();
+  brokerAccountId = body.account_id;
+  brokerAccountLoaded = true;
+  localStorage.setItem('paper_broker_account_id', brokerAccountId);
+  hydrateBroker(body);
+}
 
-  updateBrokerUI();
+function hydrateBroker(body) {
+  const tickers = broker.tickers || {};
+  broker = {cash:Number(body.cash), total:Number(body.portfolio_value), pnl:Number(body.total_pnl),
+    trades:Number(body.total_trades), positions:{}, orders:[], tickers};
+  (body.positions || []).forEach(p => broker.positions[p.symbol] = {
+    sym:p.symbol, qty:Number(p.quantity), avgCost:Number(p.avg_cost), currentPrice:Number(p.current_price)
+  });
+  broker.orders = (body.orders || []).slice().reverse().map(o => ({
+    id:o.order_id, sym:o.symbol, side:o.side, type:o.order_type, qty:Number(o.quantity),
+    price:o.filled_price == null ? (o.limit_price == null ? '市价' : Number(o.limit_price).toFixed(2)) : Number(o.filled_price).toFixed(2),
+    status:o.status, rejectReason:o.reject_reason||null
+  }));
+}
+
+function cacheQuote(quote) {
+  const sym = String(quote.symbol || '').toUpperCase();
+  broker.tickers[sym] = {sym, price:Number(quote.price), prevClose:Number(quote.prev_close),
+    changePct:Number(quote.change_pct), name:quote.name||'', source:quote.source||'',
+    dataStatus:quote.data_status||'', fallbackReason:quote.fallback_reason||null,
+    updatedAt:quote.updated_at||'', cacheHit:Boolean(quote.quote_cache_hit),
+    quoteAgeS:Number(quote.quote_age_s||0), dataMode:getDataSource()};
 }
 
 /**
@@ -2815,11 +3578,11 @@ async function placeOrder() {
  * 价格、涨跌幅、来源、数据状态全部取自后端字段；
  * 失败时返回 null 并保留上一次的后端报价，绝不生成任何模拟价格。
  */
-async function fetchLiveQuote(sym) {
+async function fetchLiveQuote(sym, {forceRefresh = false} = {}) {
   const matchEl = document.getElementById('st-match-result');
   let quote = null;
   try {
-    const resp = await fetch(API_BASE + `/quote/${encodeURIComponent(sym)}`, { signal: AbortSignal.timeout(20000) });
+    const resp = await authFetch(API_BASE + `/quote/${encodeURIComponent(sym)}?data_mode=${encodeURIComponent(getDataSource())}&force_refresh=${forceRefresh}`, { signal: AbortSignal.timeout(5000) });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       const detail = err && err.detail ? err.detail : `HTTP ${resp.status}`;
@@ -2830,8 +3593,12 @@ async function fetchLiveQuote(sym) {
     quote = await resp.json();
   } catch (e) {
     console.warn('[API] /quote', e.message);
+    const timedOut = e.name === 'TimeoutError' || e.name === 'AbortError';
+    const message = timedOut
+      ? '公共行情源 5 秒内未响应，本次获取已停止；可稍后手动重试'
+      : `后端不可达：${escapeHtml(e.message)}`;
     if (matchEl) matchEl.innerHTML =
-      `<span class="text-red-500">⚠️ 后端不可达：${e.message}，未显示任何模拟价格</span>`;
+      `<span class="text-red-500">⚠️ ${message}，未显示任何模拟价格</span>`;
     return null;
   }
   const price = Number(quote && quote.price);
@@ -2840,16 +3607,7 @@ async function fetchLiveQuote(sym) {
       '<span class="text-red-500">⚠️ 后端返回的报价无效，已拒绝使用</span>';
     return null;
   }
-  broker.tickers[sym] = {
-    sym,
-    price,
-    prevClose: Number(quote.prev_close),
-    changePct: Number(quote.change_pct),
-    name: quote.name || '',
-    source: quote.source || '',
-    dataStatus: quote.data_status || '',
-    fallbackReason: quote.fallback_reason || null,
-  };
+  cacheQuote(quote);
   renderTickerPanel(sym);
   return quote;
 }
@@ -2858,10 +3616,45 @@ async function fetchLiveQuote(sym) {
  * 刷新行情：所有价格一律来自后端 /quote 接口，前端不生成任何模拟价格。
  * 拉取失败时保留上一次的后端价格并显式提示，绝不用随机数填充。
  */
-async function pushTick() {
+async function pushTick({ manual = true } = {}) {
+  if (brokerOperationBusy) return false;
+  stopBrokerAutoRefresh(manual ? '手动刷新中' : '自动刷新中');
+  brokerOperationBusy = true;
   const sym = (document.getElementById('st-symbol')?.value.trim() || '600519').toUpperCase();
   const symbols = new Set([sym, ...Object.keys(broker.positions)]);
-  await Promise.all([...symbols].map(s => fetchLiveQuote(s)));
+  const btn = document.getElementById('push-tick-btn');
+  const originalHtml = btn?.innerHTML || '';
+  const statusEl = document.getElementById('st-order-status');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ 刷新中…'; }
+  if (statusEl) statusEl.textContent = `正在刷新 ${symbols.size} 个标的的后端行情...`;
+  try {
+    await ensurePaperAccount({ hydrate: !brokerAccountLoaded });
+    const resp = await authFetch(`${API_BASE}/paper-trading/accounts/${encodeURIComponent(brokerAccountId)}/refresh`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        symbols:[...symbols],
+        data_mode:getDataSource(),
+        // 账户估值优先复用短时已验证报价；单股按钮才强制绕过缓存。
+        force_refresh:false,
+      }),
+      signal:AbortSignal.timeout(25000)
+    });
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.detail || `HTTP ${resp.status}`);
+    hydrateBroker(body);
+    Object.values(body.quotes || {}).forEach(cacheQuote);
+    const cacheHits = Object.values(body.quotes || {}).filter(item => item.quote_cache_hit).length;
+    const elapsed = ((performance.now() - startedAt) / 1000).toFixed(2);
+    if (statusEl) statusEl.innerHTML = `<span class="text-green-600">✅ ${manual ? '手动' : '自动'}刷新完成（${elapsed} 秒${cacheHits ? `，${cacheHits} 个报价命中缓存` : ''}）</span>`;
+  } catch (e) {
+    const el=document.getElementById('st-match-result');
+    if(el) el.innerHTML=`<span class="text-red-500">行情刷新失败：${escapeHtml(e.message)}</span>`;
+    if (statusEl) statusEl.innerHTML = `<span class="text-red-600">❌ 行情刷新失败：${escapeHtml(e.message)}</span>`;
+  } finally {
+    brokerOperationBusy = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    restartBrokerAutoRefresh();
+  }
   renderTickerPanel(sym);
   updateBrokerUI();
 }
@@ -2888,31 +3681,229 @@ function renderTickerPanel(sym) {
   const chgHtml = chgPct === null
     ? '<span class="text-slate-500">涨跌幅不可用</span>'
     : `<span class="${chgPct >= 0 ? 'text-green-600' : 'text-red-500'}">${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</span>`;
-  const src = `<span class="ml-2 text-xs text-slate-400">来源：${t.source || '未知'}${t.dataStatus ? '｜' + t.dataStatus : ''}</span>`;
+  const freshness = t.updatedAt ? `｜报价时间：${escapeHtml(t.updatedAt)}` : '';
+  const cacheInfo = t.cacheHit ? `｜缓存 ${Number(t.quoteAgeS || 0).toFixed(1)} 秒` : '｜本次新取';
+  const src = `<span class="ml-2 text-xs text-slate-400">来源：${escapeHtml(t.source || '未知')}${t.dataStatus ? '｜' + escapeHtml(t.dataStatus) : ''}${freshness}${cacheInfo}</span>`;
   matchEl.innerHTML = `${chgHtml}${src}`;
 }
 
-function resetBroker() {
-  broker = { cash:1_000_000, positions:{}, orders:[], tickers:{}, orderSeq:1 };
-  updateBrokerUI();
+async function resetBroker() {
+  if (brokerOperationBusy) return;
+  brokerOperationBusy = true;
+  brokerAccountId = null;
+  brokerAccountLoaded = false;
+  localStorage.removeItem('paper_broker_account_id');
+  try {
+    await ensurePaperAccount();
+    updateBrokerUI();
+  } finally {
+    brokerOperationBusy = false;
+    restartBrokerAutoRefresh();
+  }
+}
+
+function stopBrokerAutoRefresh(message = '') {
+  if (brokerAutoRefreshTimer) clearTimeout(brokerAutoRefreshTimer);
+  if (brokerCountdownTimer) clearInterval(brokerCountdownTimer);
+  brokerAutoRefreshTimer = null;
+  brokerCountdownTimer = null;
+  brokerAutoRefreshDueAt = 0;
+  const countdown = document.getElementById('broker-refresh-countdown');
+  if (countdown && message) countdown.textContent = message;
+}
+
+function restartBrokerAutoRefresh() {
+  stopBrokerAutoRefresh();
+  const pageVisible = document.getElementById('page-simtrade')?.classList.contains('active');
+  const enabled = document.getElementById('broker-auto-refresh')?.checked;
+  const countdown = document.getElementById('broker-refresh-countdown');
+  if (!pageVisible || !enabled) {
+    if (countdown) countdown.textContent = enabled ? '已暂停' : '自动刷新已关闭';
+    return;
+  }
+  const delay = Number(document.getElementById('broker-refresh-interval')?.value || 30000);
+  brokerAutoRefreshDueAt = Date.now() + delay;
+  const updateCountdown = () => {
+    const remaining = Math.max(0, Math.ceil((brokerAutoRefreshDueAt - Date.now()) / 1000));
+    if (countdown) countdown.textContent = `${remaining} 秒后自动刷新`;
+  };
+  updateCountdown();
+  brokerCountdownTimer = setInterval(updateCountdown, 1000);
+  brokerAutoRefreshTimer = setTimeout(async () => {
+    stopBrokerAutoRefresh('自动刷新中');
+    if (!brokerOperationBusy) await pushTick({ manual: false });
+    else restartBrokerAutoRefresh();
+  }, delay);
+}
+
+async function runContinuousPaperTrading() {
+  return withOperationFeedback(
+    'paper-run', 'paper-run-btn', 'paper-run-status',
+    '正在生成交易日序列并运行模拟', runContinuousPaperTradingTask,
+  );
+}
+
+async function runContinuousPaperTradingTask() {
+  const symbols = (document.getElementById('paper-run-symbols')?.value || '').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+  const days = Number(document.getElementById('paper-run-days')?.value || 20);
+  const out = document.getElementById('paper-run-result');
+  if (!symbols.length) {
+    if (out) out.textContent = '请输入至少一个证券代码';
+    return false;
+  }
+  if (!Number.isInteger(days) || days < 1 || days > 250) {
+    if (out) out.textContent = '交易日数量必须是 1 到 250 之间的整数';
+    return false;
+  }
+  if(out) out.textContent='运行中...';
+  try {
+    const resp=await authFetch(`${API_BASE}/paper-trading/runs`, {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({symbols,days,data_mode:getDataSource(),initial_cash:1000000}),signal:AbortSignal.timeout(60000)});
+    const body=await resp.json();
+    if(!resp.ok) throw new Error(body.detail||`HTTP ${resp.status}`);
+    const noTradeNote = Number(body.total_trades) === 0
+      ? '｜该区间没有满足策略条件的交易信号，不代表任务未运行'
+      : '';
+    if(out) out.innerHTML=`运行ID ${escapeHtml(body.run_id)}｜请求 ${days} 个交易日，实际 ${body.trading_days} 个交易日｜${body.total_trades} 笔成交｜总收益 ${Number(body.total_pnl_pct).toFixed(2)}%｜${escapeHtml(body.data_status)}${noTradeNote}`;
+    return true;
+  } catch(e) {
+    if(out) out.textContent=`运行失败：${e.message}`;
+    return false;
+  }
+}
+
+async function createPaperMonitorJob() {
+  const button = document.getElementById('paper-monitor-create-btn');
+  const status = document.getElementById('paper-monitor-status');
+  const symbols = (document.getElementById('paper-run-symbols')?.value || '')
+    .split(',').map(value => value.trim().toUpperCase()).filter(Boolean);
+  const runTime = document.getElementById('paper-monitor-time')?.value || '15:10';
+  if (!symbols.length) {
+    if (status) status.textContent = '请输入至少一个证券代码';
+    return;
+  }
+  if (button) button.disabled = true;
+  if (status) status.textContent = '正在创建持久化监控任务...';
+  try {
+    const response = await authFetch(`${API_BASE}/paper-trading/monitor/jobs`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({symbols, data_mode: getDataSource(), run_time: runTime}),
+      signal: AbortSignal.timeout(20000),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    if (status) status.innerHTML = body.deduplicated
+      ? `<span class="text-amber-600">相同任务已存在，未重复创建：${escapeHtml(body.id)}</span>`
+      : `<span class="text-green-600">任务已创建：${escapeHtml(body.id)}</span>`;
+    await loadPaperMonitorJobs();
+  } catch (error) {
+    if (status) status.innerHTML = `<span class="text-red-600">创建失败：${escapeHtml(error.message)}</span>`;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function loadPaperMonitorJobs() {
+  const container = document.getElementById('paper-monitor-jobs');
+  if (!container) return;
+  const [jobs, scheduler] = await Promise.all([
+    callApi('/paper-trading/monitor/jobs', { signal: AbortSignal.timeout(15000) }),
+    callApi('/paper-trading/monitor/status', { signal: AbortSignal.timeout(15000) }),
+  ]);
+  if (!Array.isArray(jobs)) {
+    container.textContent = '长期监控任务读取失败';
+    return;
+  }
+  const schedulerText = scheduler?.running
+    ? `调度器运行中（每 ${escapeHtml(scheduler.poll_interval_s)} 秒检查）`
+    : '调度器未启动；任务可手动运行，但不会自动采集';
+  const calendarText = scheduler?.calendar_basis === 'weekday_candidate_only'
+    ? '当前按工作日候选日期采集；尚未接入交易所节假日日历'
+    : '';
+  if (!jobs.length) {
+    container.innerHTML = `<div class="mb-1 ${scheduler?.running ? 'text-green-600' : 'text-amber-600'}">${schedulerText}</div><div class="mb-2 text-slate-400">${calendarText}</div><div>尚未创建长期监控任务</div>`;
+    return;
+  }
+  const rows = await Promise.all(jobs.map(async job => {
+    const runs = await callApi(`/paper-trading/monitor/jobs/${encodeURIComponent(job.id)}/runs`, { signal: AbortSignal.timeout(15000) });
+    const history = Array.isArray(runs) ? runs : [];
+    const latest = history[0];
+    const summary = job.summary || {};
+    const taskState = !job.enabled ? '已暂停' : scheduler?.running ? '自动采集中' : '任务已启用，调度器未启动';
+    const latestError = latest?.error ? `｜错误 ${escapeHtml(latest.error)}` : '';
+    return `<div class="border border-slate-100 p-2 mt-2 rounded">
+      <div class="font-medium text-slate-700">${job.symbols.map(escapeHtml).join(', ')} · 每日 ${escapeHtml(job.run_time)}</div>
+      <div class="mt-1">${escapeHtml(taskState)}｜模式 ${escapeHtml(job.data_mode)}｜真实有效证据 ${Number(summary.valid_real_evidence_days || 0)}/7 天｜距完整目标 ${Number(summary.remaining_target_days ?? 14)} 天｜总记录 ${Number(summary.total_runs || 0)}</div>
+      <div class="mt-1 text-xs text-slate-500">证据区间 ${escapeHtml(summary.first_valid_evidence_date || '—')} 至 ${escapeHtml(summary.last_valid_evidence_date || '—')}｜缺失候选交易日 ${Number((summary.missing_candidate_dates || []).length)}</div>
+      <div class="mt-1">${latest ? `最近 ${escapeHtml(latest.trading_date)} ${escapeHtml(latest.status)}${latestError}` : '尚无运行记录'}${summary.next_run_at ? `｜下次 ${escapeHtml(new Date(summary.next_run_at).toLocaleString('zh-CN'))}` : ''}</div>
+      <div class="mt-1 text-slate-400">本地 MockBroker，不连接真实券商</div>
+      <div class="flex gap-2 mt-2">
+        <button onclick="runPaperMonitorJob('${escapeHtml(job.id)}', this)" class="border border-blue-200 text-blue-600 px-2 py-1 rounded disabled:opacity-50">立即运行</button>
+        <button onclick="togglePaperMonitorJob('${escapeHtml(job.id)}', ${!job.enabled}, this)" class="border border-slate-200 text-slate-600 px-2 py-1 rounded disabled:opacity-50">${job.enabled ? '暂停' : '恢复'}</button>
+        <button onclick="deletePaperMonitorJob('${escapeHtml(job.id)}', this)" class="border border-red-200 text-red-600 px-2 py-1 rounded disabled:opacity-50">删除</button>
+      </div>
+    </div>`;
+  }));
+  container.innerHTML = `<div class="mb-1 ${scheduler?.running ? 'text-green-600' : 'text-amber-600'}">${schedulerText}</div><div class="mb-2 text-slate-400">${calendarText}</div>${rows.join('')}`;
+}
+
+async function runPaperMonitorJob(jobId, button) {
+  const status = document.getElementById('paper-monitor-status');
+  const originalText = button?.textContent || '立即运行';
+  if (button) { button.disabled = true; button.textContent = '运行中...'; }
+  if (status) status.innerHTML = '<span class="text-blue-600">正在采集行情并保存今日账户快照...</span>';
+  try {
+    const response = await authFetch(`${API_BASE}/paper-trading/monitor/jobs/${encodeURIComponent(jobId)}/run`, {method:'POST', signal:AbortSignal.timeout(30000)});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    const resultLabel = body.deduplicated
+      ? `今日已执行，未重复写入；已有记录状态：${escapeHtml(body.status)}`
+      : `立即运行完成；记录状态：${escapeHtml(body.status)}`;
+    if (status) status.innerHTML = `<span class="${body.status === 'failed' ? 'text-red-600' : 'text-green-600'}">${resultLabel}（${escapeHtml(body.trading_date)}）</span>`;
+    await loadPaperMonitorJobs();
+  } catch (error) {
+    if (status) status.innerHTML = `<span class="text-red-600">运行失败：${escapeHtml(error.message)}</span>`;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = originalText; }
+  }
+}
+
+async function togglePaperMonitorJob(jobId, enabled, button) {
+  if (button) button.disabled = true;
+  try {
+    const response = await authFetch(`${API_BASE}/paper-trading/monitor/jobs/${encodeURIComponent(jobId)}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled}), signal:AbortSignal.timeout(15000)});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    await loadPaperMonitorJobs();
+  } catch (error) {
+    const status = document.getElementById('paper-monitor-status');
+    if (status) status.innerHTML = `<span class="text-red-600">状态更新失败：${escapeHtml(error.message)}</span>`;
+  } finally { if (button) button.disabled = false; }
+}
+
+async function deletePaperMonitorJob(jobId, button) {
+  if (!window.confirm('删除该监控任务及其采集记录？模拟账户不会被删除。')) return;
+  if (button) button.disabled = true;
+  try {
+    const response = await authFetch(`${API_BASE}/paper-trading/monitor/jobs/${encodeURIComponent(jobId)}`, {method:'DELETE', signal:AbortSignal.timeout(15000)});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    await loadPaperMonitorJobs();
+  } catch (error) {
+    const status = document.getElementById('paper-monitor-status');
+    if (status) status.innerHTML = `<span class="text-red-600">删除失败：${escapeHtml(error.message)}</span>`;
+  } finally { if (button) button.disabled = false; }
 }
 
 function updateBrokerUI() {
-  // 计算持仓市值
-  let mktVal = 0;
-  Object.values(broker.positions).forEach(pos => {
-    const tick = broker.tickers[pos.sym];
-    const p = tick ? tick.price : pos.avgCost;
-    mktVal += p * pos.qty;
-  });
-  const total = broker.cash + mktVal;
-  const pnl   = total - 1_000_000;
+  const total = broker.total;
+  const pnl   = broker.pnl;
   const rc = pnl >= 0 ? 'text-green-600' : 'text-red-500';
 
   const _set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   _set('acc-cash',   '¥' + broker.cash.toLocaleString('zh-CN', {maximumFractionDigits:2}));
   _set('acc-total',  '¥' + total.toLocaleString('zh-CN', {maximumFractionDigits:2}));
-  _set('acc-trades', broker.orders.length);
+  _set('acc-trades', broker.trades);
   const pnlEl = document.getElementById('acc-pnl');
   if (pnlEl) {
     pnlEl.textContent = (pnl>=0?'+':'') + '¥' + Math.abs(pnl).toLocaleString('zh-CN', {maximumFractionDigits:2});
@@ -2942,17 +3933,27 @@ function updateBrokerUI() {
     }
   }
 
-  // 挂单表（5列：订单ID/代码/方向/数量/限价）
+  // 订单表（6列：订单ID/代码/方向/数量/价格/状态）
   const oBody = document.getElementById('st-orders-body');
   if (oBody) {
-    oBody.innerHTML = broker.orders.slice(0, 15).map((o,i) =>
-      `<tr class="${i%2===0?'':'bg-slate-50/50'}">
+    oBody.innerHTML = broker.orders.slice(0, 15).map((o,i) => {
+      const statusMeta = o.status === 'filled'
+        ? ['已成交', 'bg-green-100 text-green-700']
+        : o.status === 'rejected'
+          ? ['已拒绝', 'bg-red-100 text-red-700']
+          : o.status === 'cancelled'
+            ? ['已撤销', 'bg-slate-100 text-slate-600']
+            : ['待成交', 'bg-amber-100 text-amber-700'];
+      const reason = o.rejectReason ? ` title="${escapeHtml(o.rejectReason)}"` : '';
+      return `<tr class="${i%2===0?'':'bg-slate-50/50'}">
         <td class="px-3 py-2 text-xs font-mono text-slate-500">${o.id}</td>
         <td class="px-3 py-2 text-sm font-medium text-slate-800">${o.sym}</td>
         <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded text-xs font-medium ${o.side==='buy'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}">${o.side==='buy'?'买入':'卖出'}</span></td>
         <td class="px-3 py-2 text-sm num text-right">${o.qty}</td>
         <td class="px-3 py-2 text-sm num text-right">${o.price}</td>
-      </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-4 text-center text-slate-400">暂无挂单</td></tr>';
+        <td class="px-3 py-2 text-center"${reason}><span class="px-1.5 py-0.5 rounded text-xs ${statusMeta[1]}">${statusMeta[0]}</span></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="6" class="px-3 py-4 text-center text-slate-400">暂无订单</td></tr>';
   }
 }
 
@@ -3014,7 +4015,286 @@ function addObsCall(agentName, latency, success, inputSize = 0, outputSize = 0, 
     </tr>`).join('');
 }
 
-function resetObs() {
+async function loadObservability() {
+  const summary = await callApi('/observability', { signal: AbortSignal.timeout(15000) });
+  if (!summary) {
+    const tbody = document.getElementById('obs-agent-table');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-red-500 text-sm">无法读取后端可观测数据</td></tr>';
+    return;
+  }
+  const calls = Array.isArray(summary.recent_calls) ? summary.recent_calls : [];
+  obsState = {
+    calls: calls.map((call, index) => ({
+      id: call.id || `CALL-${String(index + 1).padStart(4, '0')}`,
+      agent: call.agent_name || 'unknown',
+      latency: Math.round(Number(call.duration_s || 0) * 1000),
+      success: Boolean(call.success),
+      inputSize: Number(call.input_tokens || 0),
+      outputSize: Number(call.output_tokens || 0),
+      guardrails: Array.isArray(call.guardrail_violations) ? call.guardrail_violations.length : 0,
+      retries: Number(call.retries || 0),
+      ts: new Date(Number(call.started_at || 0) * 1000).toLocaleString('zh-CN'),
+    })),
+    callSeq: calls.length + 1,
+    harnessResults: [],
+  };
+
+  const _set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+  _set('obs-total-calls', summary.total_calls || 0);
+  _set('obs-success-rate', `${Number(summary.success_rate_pct || 0).toFixed(1)}%`);
+  _set('obs-p50', `${Math.round(Number(summary.latency_p50_s || 0) * 1000)}ms`);
+  _set('obs-p95', `${Math.round(Number(summary.latency_p95_s || 0) * 1000)}ms`);
+  _set('obs-in-tokens', Number(summary.total_input_tokens || 0).toLocaleString());
+  _set('obs-out-tokens', Number(summary.total_output_tokens || 0).toLocaleString());
+  _set('obs-guardrail', summary.guardrail_violation_count || 0);
+  _set('obs-retries', Number(summary.avg_retries || 0).toFixed(2));
+
+  const tbody = document.getElementById('obs-agent-table');
+  if (tbody) tbody.innerHTML = obsState.calls.length ? obsState.calls.map((call, index) => `
+    <tr class="${index % 2 === 0 ? '' : 'bg-slate-50/50'}">
+      <td class="px-4 py-2 text-xs font-mono text-slate-500">${escapeHtml(call.id)}</td>
+      <td class="px-4 py-2 text-sm font-medium text-slate-700">${escapeHtml(call.agent)}</td>
+      <td class="px-4 py-2 text-xs ${call.success ? 'text-green-600' : 'text-red-500'}">${call.success ? '成功' : '失败'}</td>
+      <td class="px-4 py-2 text-sm num text-right text-slate-700">${call.latency}ms</td>
+      <td class="px-4 py-2 text-sm num text-right text-slate-500">${call.inputSize}/${call.outputSize}</td>
+      <td class="px-4 py-2 text-sm num text-right text-slate-500">${call.guardrails}</td>
+      <td class="px-4 py-2 text-xs text-slate-400">${escapeHtml(call.ts)}</td>
+    </tr>`).join('') : '<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400 text-sm">暂无服务端调用记录</td></tr>';
+  initObsCharts();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   12. 天气分析
+═══════════════════════════════════════════════════════════════ */
+let weatherSamples = null;
+const WEATHER_REGIONS = {
+  '北京市': { '北京市': ['朝阳区', '海淀区', '东城区', '西城区', '丰台区', '昌平区'] },
+  '上海市': { '上海市': ['浦东新区', '黄浦区', '徐汇区', '静安区', '闵行区'] },
+  '广东省': { '广州市': ['天河区', '越秀区', '海珠区', '番禺区'], '深圳市': ['福田区', '南山区', '罗湖区', '宝安区'] },
+  '浙江省': { '杭州市': ['西湖区', '上城区', '拱墅区', '滨江区'], '宁波市': ['海曙区', '鄞州区', '江北区'] },
+  '四川省': { '成都市': ['锦江区', '青羊区', '武侯区', '高新区'] },
+  '重庆市': { '重庆市': ['渝中区', '江北区', '南岸区', '沙坪坝区'] },
+};
+
+function initializeWeatherRegions() {
+  const province = document.getElementById('weather-province');
+  if (!province || province.options.length) return;
+  province.innerHTML = Object.keys(WEATHER_REGIONS)
+    .map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+  updateWeatherCities();
+}
+
+function clearWeatherStatus() {
+  const status = document.getElementById('weather-status');
+  if (status) status.textContent = '';
+}
+
+function updateWeatherCities() {
+  const province = document.getElementById('weather-province')?.value || '北京市';
+  const citySelect = document.getElementById('weather-city-select');
+  if (!citySelect) return;
+  citySelect.innerHTML = Object.keys(WEATHER_REGIONS[province] || {})
+    .map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+  updateWeatherDistricts();
+  clearWeatherStatus();
+}
+
+function updateWeatherDistricts() {
+  const province = document.getElementById('weather-province')?.value || '北京市';
+  const city = document.getElementById('weather-city-select')?.value || '北京市';
+  const districtSelect = document.getElementById('weather-district');
+  if (!districtSelect) return;
+  districtSelect.innerHTML = (WEATHER_REGIONS[province]?.[city] || [])
+    .map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+  clearWeatherStatus();
+}
+
+function getWeatherLocation() {
+  const custom = document.getElementById('weather-custom-location')?.value.trim();
+  if (custom) return custom;
+  const province = document.getElementById('weather-province')?.value || '';
+  const city = document.getElementById('weather-city-select')?.value || '';
+  const district = document.getElementById('weather-district')?.value || '';
+  return `${province}${city === province ? '' : city}${district}`;
+}
+
+function switchWeatherMode(mode) {
+  const offline = mode === 'offline';
+  initializeWeatherRegions();
+  document.getElementById('weather-sample-field')?.classList.toggle('hidden', !offline);
+  document.getElementById('weather-city-field')?.classList.toggle('hidden', !offline);
+  document.getElementById('weather-online-location-fields')?.classList.toggle('hidden', offline);
+  document.getElementById('weather-temps-field')?.classList.toggle('hidden', !offline);
+  const sourceDisplay = document.getElementById('weather-source-display');
+  if (sourceDisplay) sourceDisplay.textContent = offline
+    ? '内置天气样例数据'
+    : 'Open-Meteo 公开天气数据';
+  const button = document.getElementById('weather-analyze-btn');
+  if (button) button.textContent = offline ? '分析输入数据' : '获取天气并分析';
+  const status = document.getElementById('weather-status');
+  if (status) status.textContent = offline
+    ? '离线模式不会访问网络'
+    : '输入城市后获取 Open-Meteo 当前天气和未来 7 天预报';
+}
+
+async function applyWeatherSample(city) {
+  if (!city) return;
+  try {
+    if (!weatherSamples) {
+      const response = await authFetch(`${API_BASE}/weather/samples`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      weatherSamples = await response.json();
+    }
+    const sample = weatherSamples.find(item => item.city === city);
+    if (!sample) throw new Error('未找到该城市样例');
+    document.getElementById('weather-city').value = sample.city;
+    document.getElementById('weather-temps').value = sample.temps.join(', ');
+    document.getElementById('weather-status').textContent = '已载入内置样例';
+  } catch (error) {
+    document.getElementById('weather-status').textContent = `样例载入失败：${error.message}`;
+  }
+}
+
+async function runWeatherAnalysis() {
+  const dataMode = document.getElementById('weather-data-mode')?.value || 'online';
+  const city = dataMode === 'online'
+    ? getWeatherLocation()
+    : document.getElementById('weather-city').value.trim();
+  const tempsInput = document.getElementById('weather-temps').value.trim();
+  const status = document.getElementById('weather-status');
+  const btn = document.getElementById('weather-analyze-btn');
+  const resultContainer = document.getElementById('weather-result-container');
+
+  if (!city) {
+    status.innerHTML = '<span class="text-red-600">请输入城市名称</span>';
+    return;
+  }
+
+  // 联网模式的温度由后端公开预报提供；离线模式才解析用户输入。
+  const temps = dataMode === 'online'
+    ? [0, 0]
+    : tempsInput.split(',').map(t => parseFloat(t.trim())).filter(t => !isNaN(t));
+  if (dataMode === 'offline' && (temps.length < 2 || temps.length > 366)) {
+    status.innerHTML = '<span class="text-red-600">温度序列必须包含 2-366 个数据点</span>';
+    return;
+  }
+
+  // 前端校验温度范围
+  const invalidTemps = dataMode === 'offline' ? temps.filter(t => t < -100 || t > 100) : [];
+  if (invalidTemps.length > 0) {
+    status.innerHTML = `<span class="text-red-600">温度值超出合理范围 [-100, 100]°C：${escapeHtml(invalidTemps.join(', '))}</span>`;
+    return;
+  }
+
+  btn.disabled = true;
+  status.innerHTML = `<div class="dots"><span></span><span></span><span></span></div> ${dataMode === 'online' ? '正在获取公开天气预报...' : '正在分析...'}`;
+  resultContainer.classList.add('hidden');
+
+  try {
+    const response = await authFetch(`${API_BASE}/weather/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ city, temps, data_mode: dataMode }),
+      signal: AbortSignal.timeout(12000),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || `HTTP ${response.status}`);
+    }
+
+    // 显示结果
+    document.getElementById('weather-res-city').textContent = data.city;
+    document.getElementById('weather-res-period').textContent = data.period_days;
+    const trendLabels = { warming: '升温', cooling: '降温', stable: '平稳' };
+    document.getElementById('weather-res-trend').textContent = trendLabels[data.trend] || data.trend;
+    document.getElementById('weather-res-avg').textContent = data.avg_temp_c.toFixed(1) + '°C';
+    document.getElementById('weather-res-max').textContent = data.max_temp_c.toFixed(1) + '°C';
+    document.getElementById('weather-res-min').textContent = data.min_temp_c.toFixed(1) + '°C';
+    document.getElementById('weather-res-range').textContent = data.temp_range_c.toFixed(1) + '°C';
+    document.getElementById('weather-res-volatility').textContent = data.volatility_c.toFixed(2) + '°C';
+    document.getElementById('weather-res-summary').textContent = data.summary;
+    document.getElementById('weather-res-source').textContent = data.source;
+    document.getElementById('weather-res-updated').textContent = data.updated_at;
+    document.getElementById('weather-res-disclaimer').textContent = data.disclaimer;
+
+    renderLiveWeather(data.forecast);
+
+    // Harness 结果
+    const harnessBadge = document.getElementById('weather-harness-badge');
+    if (data.harness_approved) {
+      harnessBadge.textContent = '✓ 通过';
+      harnessBadge.className = 'px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700';
+    } else {
+      harnessBadge.textContent = '✗ 未通过';
+      harnessBadge.className = 'px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700';
+    }
+
+    const checksContainer = document.getElementById('weather-harness-checks');
+    checksContainer.innerHTML = data.harness_checks.map(check => {
+      const icon = check.passed ? '✅' : '❌';
+      const color = check.passed ? 'text-green-700' : 'text-red-700';
+      return `<div class="flex items-start gap-2 text-sm">
+        <span class="text-base">${icon}</span>
+        <div class="flex-1">
+          <span class="font-medium ${color}">${escapeHtml(check.check_name)}</span>
+          <span class="text-slate-600">: ${escapeHtml(check.message)}</span>
+        </div>
+      </div>`;
+    }).join('');
+
+    resultContainer.classList.remove('hidden');
+    status.innerHTML = `<span class="text-green-600">分析完成（${dataMode === 'online' ? '联网预报' : '离线数据'}）</span>`;
+  } catch (error) {
+    status.innerHTML = `<span class="text-red-600">分析失败：${escapeHtml(error.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderLiveWeather(forecast) {
+  const container = document.getElementById('weather-live-container');
+  if (!forecast) {
+    container?.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+  document.getElementById('weather-live-observed').textContent = `观测时间：${forecast.observed_at || '—'}`;
+  const locationNote = document.getElementById('weather-location-note');
+  const isFallback = forecast.location_note?.includes('已回退');
+  if (locationNote) {
+    locationNote.textContent = forecast.location_note || '';
+    locationNote.classList.toggle('hidden', !isFallback);
+  }
+  const currentItems = [
+    ['天气', forecast.condition || '—'],
+    ['当前温度', `${forecast.current_temperature_c ?? '—'}°C`],
+    ['体感温度', forecast.apparent_temperature_c == null ? '—' : `${forecast.apparent_temperature_c}°C`],
+    ['湿度', forecast.relative_humidity_pct == null ? '—' : `${forecast.relative_humidity_pct}%`],
+    ['风速', forecast.wind_speed_kmh == null ? '—' : `${forecast.wind_speed_kmh} km/h`],
+  ];
+  document.getElementById('weather-live-current').innerHTML = currentItems.map(([label, value]) =>
+    `<div class="bg-slate-50 border border-slate-100 rounded p-3"><p class="text-xs text-slate-500 mb-1">${escapeHtml(label)}</p><p class="text-sm font-semibold text-slate-800">${escapeHtml(String(value))}</p></div>`
+  ).join('');
+  document.getElementById('weather-live-daily').innerHTML = (forecast.daily || []).map(day => {
+    const rain = day.precipitation_probability_pct == null ? '—' : `${day.precipitation_probability_pct}%`;
+    return `<div class="border border-slate-200 rounded p-2 text-center min-w-0">
+      <p class="text-xs text-slate-500">${escapeHtml(day.date)}</p>
+      <p class="text-xs font-medium text-slate-700 my-1">${escapeHtml(day.condition)}</p>
+      <p class="text-xs"><span class="text-red-600">${Number(day.temp_max_c).toFixed(1)}°</span> / <span class="text-blue-600">${Number(day.temp_min_c).toFixed(1)}°</span></p>
+      <p class="text-xs text-slate-400 mt-1">降水 ${escapeHtml(rain)}</p>
+    </div>`;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   13. 通用工具函数
+═══════════════════════════════════════════════════════════════ */
+async function resetObs() {
+  const result = await callApi('/observability', { method: 'DELETE' });
+  if (!result) return;
   obsState = { calls:[], callSeq:1, harnessResults:[] };
   document.getElementById('obs-total-calls').textContent  = '0';
   document.getElementById('obs-success-rate').textContent = '—';
@@ -3072,8 +4352,8 @@ function drawObsTokenChart() {
   const inp = calls.map(c => c.inputSize);
   const out = calls.map(c => c.outputSize);
   drawBarChart('svg-obs-tokens', labels, [          // 修正：svg-obs-tokens
-    { label:'输入字符', values:inp, color:'#6366F1' },
-    { label:'输出字符', values:out, color:'#F59E0B' },
+    { label:'输入 Token', values:inp, color:'#6366F1' },
+    { label:'输出 Token', values:out, color:'#F59E0B' },
   ]);
 }
 
@@ -3113,15 +4393,16 @@ function toggleExpander(id) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   13. 个人设置
+   14. 个人设置
 ═══════════════════════════════════════════════════════════════ */
-let userProfile = { name: 'Admin', avatarColor: 'bg-slate-600', avatarLetter: 'A' };
+let userProfile = { name: '', avatarColor: 'bg-slate-600', avatarLetter: '' };
 
 function openProfileModal() {
   toggleUserMenu(); // 关闭用户菜单
   document.getElementById('profile-modal').classList.remove('hidden');
-  document.getElementById('profile-name-input').value = userProfile.name;
-  document.getElementById('profile-avatar-letter').value = userProfile.avatarLetter;
+  document.getElementById('profile-name-input').value = authenticatedUser?.username || '';
+  document.getElementById('profile-name-input').readOnly = true;
+  document.getElementById('profile-avatar-letter').value = userProfile.avatarLetter || (authenticatedUser?.username || 'U').slice(0, 1).toUpperCase();
   // 高亮当前选中的颜色
   document.querySelectorAll('.avatar-color-option').forEach(el => {
     el.classList.toggle('ring-2', el.dataset.color === userProfile.avatarColor);
@@ -3143,7 +4424,7 @@ function selectAvatarColor(color) {
   });
 }
 
-function saveProfile() {
+async function saveProfile() {
   const newName = document.getElementById('profile-name-input').value.trim();
   const newLetter = document.getElementById('profile-avatar-letter').value.trim().toUpperCase().substring(0, 1) || 'A';
   const oldPwd = document.getElementById('profile-old-pwd').value;
@@ -3160,20 +4441,38 @@ function saveProfile() {
       alert('两次输入的新密码不一致');
       return;
     }
-    if (newPwd.length < 6) {
-      alert('新密码至少需要6个字符');
+    if (newPwd.length < 8) {
+      alert('新密码至少需要 8 位');
       return;
     }
-    // 这里可以添加实际的密码验证逻辑
-    console.log('密码已更新（模拟）');
+    if (newPwd === oldPwd) {
+      alert('新密码不能与当前密码相同');
+      return;
+    }
+    try {
+      const response = await authFetch(`${API_BASE}/auth/password`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({current_password: oldPwd, new_password: newPwd}),
+        signal: AbortSignal.timeout(10000),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+      closeProfileModal();
+      alert('密码修改成功，请使用新密码重新登录');
+      doLogout();
+      return;
+    } catch (error) {
+      alert(`密码修改失败：${error.message}`);
+      return;
+    }
   }
 
   // 更新 profile
-  userProfile.name = newName || 'Admin';
+  userProfile.name = authenticatedUser?.username || '未登录';
   userProfile.avatarLetter = newLetter;
 
   // 更新 UI
-  document.getElementById('user-name').textContent = userProfile.name;
+  document.getElementById('user-name').textContent = authenticatedUser?.username || '未登录';
   const avatarEl = document.getElementById('user-avatar');
   avatarEl.textContent = userProfile.avatarLetter;
   avatarEl.className = `w-8 h-8 ${userProfile.avatarColor} rounded-full flex items-center justify-center text-xs font-semibold text-white`;
@@ -3182,8 +4481,62 @@ function saveProfile() {
   alert('个人设置已保存');
 }
 
+async function openAdminUsersModal() {
+  if (authenticatedUser?.role !== 'admin') return;
+  document.getElementById('user-menu').classList.add('hidden');
+  document.getElementById('admin-users-modal').classList.remove('hidden');
+  await loadAdminUsers();
+}
+
+function closeAdminUsersModal() {
+  document.getElementById('admin-users-modal').classList.add('hidden');
+}
+
+async function loadAdminUsers() {
+  const body = document.getElementById('admin-users-body');
+  const status = document.getElementById('admin-users-status');
+  body.innerHTML = '<tr><td colspan="5" class="px-3 py-5 text-center text-slate-400">加载中...</td></tr>';
+  status.textContent = '';
+  try {
+    const response = await authFetch(`${API_BASE}/admin/users`, {signal: AbortSignal.timeout(8000)});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+    body.innerHTML = (payload.users || []).map(user => `
+      <tr class="border-t border-slate-100">
+        <td class="px-3 py-2 font-medium">${escapeHtml(user.username)}</td>
+        <td class="px-3 py-2 text-slate-500">${escapeHtml(user.email || '未填写')}</td>
+        <td class="px-3 py-2"><span class="rounded px-2 py-1 text-xs ${user.role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}">${user.role === 'admin' ? '管理员' : '普通用户'}</span></td>
+        <td class="px-3 py-2 text-slate-500">${escapeHtml(user.created_at || '')}</td>
+        <td class="px-3 py-2 text-right"><select class="border border-slate-200 rounded px-2 py-1 text-xs" onchange="changeUserRole('${user.id}', this.value)"><option value="user" ${user.role === 'user' ? 'selected' : ''}>普通用户</option><option value="admin" ${user.role === 'admin' ? 'selected' : ''}>管理员</option></select></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-5 text-center text-slate-400">暂无用户</td></tr>';
+  } catch (error) {
+    body.innerHTML = '<tr><td colspan="5" class="px-3 py-5 text-center text-red-500">加载失败</td></tr>';
+    status.textContent = error.message;
+  }
+}
+
+async function changeUserRole(userId, role) {
+  try {
+    const response = await authFetch(`${API_BASE}/admin/users/${encodeURIComponent(userId)}/role`, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({role}), signal: AbortSignal.timeout(8000),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+    document.getElementById('admin-users-status').textContent = '角色已更新';
+    if (payload.id === authenticatedUser?.id) {
+      authenticatedUser.role = payload.role;
+      applyAuthenticatedUser(authenticatedUser);
+    }
+    await loadAdminUsers();
+  } catch (error) {
+    document.getElementById('admin-users-status').textContent = `更新失败：${error.message}`;
+    await loadAdminUsers();
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════
-   14. window.onload — 初始化入口
+   15. window.onload — 初始化入口
 ═══════════════════════════════════════════════════════════════ */
 window.onload = () => {
   // 动态设置所有日期输入的 max = 今天，避免浏览器原生 "今天" 按钮灰掉
@@ -3196,14 +4549,7 @@ window.onload = () => {
   navigate('analysis');
   // 延迟初始化，等 DOM 完全就绪
   setTimeout(() => {
-    runAnalysis();
     loadBackendHealth();
-    // 模拟盘：启动实时报价 ticker
-    setInterval(() => {
-      if (document.getElementById('page-simtrade')?.classList.contains('hidden') === false) {
-        pushTick();
-      }
-    }, 3000);
     // 可观测性图表初始化
     initObsCharts();
   }, 300);
@@ -3255,7 +4601,7 @@ window.onload = () => {
         <div class="space-y-2.5">
           <input id="profile-old-pwd" type="password" placeholder="当前密码"
             class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
-          <input id="profile-new-pwd" type="password" placeholder="新密码（至少6位）"
+          <input id="profile-new-pwd" type="password" placeholder="新密码（至少8位）" autocomplete="new-password"
             class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
           <input id="profile-confirm-pwd" type="password" placeholder="确认新密码"
             class="input-field w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50" />
@@ -3267,6 +4613,21 @@ window.onload = () => {
       <button onclick="closeProfileModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">取消</button>
       <button onclick="saveProfile()" class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">保存</button>
     </div>
+  </div>
+</div>
+
+<div id="admin-users-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center">
+  <div class="absolute inset-0 bg-black/50" onclick="closeAdminUsersModal()"></div>
+  <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+      <div><h3 class="text-base font-semibold text-slate-900">用户管理</h3><p class="text-xs text-slate-500 mt-1">查看用户资料并管理角色，不显示密码或令牌</p></div>
+      <button onclick="closeAdminUsersModal()" class="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400" title="关闭">×</button>
+    </div>
+    <div class="p-5 overflow-x-auto">
+      <div id="admin-users-status" class="text-xs text-slate-500 mb-2 min-h-4"></div>
+      <table class="w-full text-left text-sm"><thead><tr class="text-xs text-slate-500"><th class="px-3 py-2">用户名</th><th class="px-3 py-2">邮箱</th><th class="px-3 py-2">角色</th><th class="px-3 py-2">创建时间</th><th class="px-3 py-2 text-right">角色管理</th></tr></thead><tbody id="admin-users-body"></tbody></table>
+    </div>
+    <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2"><button onclick="loadAdminUsers()" class="px-3 py-2 text-sm border border-slate-200 rounded-lg">刷新</button><button onclick="closeAdminUsersModal()" class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg">关闭</button></div>
   </div>
 </div>
 

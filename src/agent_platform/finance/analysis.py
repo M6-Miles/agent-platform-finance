@@ -60,6 +60,8 @@ class SecurityAnalysisResult:
     price_history: pd.DataFrame
     data_status: str                     # live / offline_sample / fallback / unavailable
     fallback_reason: str | None          # 降级或不可用时的原因
+    latest_volume: float | None = None
+    latest_volume_ma5: float | None = None
 
     def to_markdown(self) -> str:
         bb_pos = f"{self.latest_bb_position_pct:.1f}%"
@@ -125,6 +127,8 @@ class SecurityAnalysisResult:
             "latest_ma20": self.latest_ma20,
             "latest_ema12": self.latest_ema12,
             "latest_ema26": self.latest_ema26,
+            "latest_volume": self.latest_volume,
+            "latest_volume_ma5": self.latest_volume_ma5,
             "latest_rsi": self.latest_rsi,
             "latest_macd": self.latest_macd,
             "latest_macd_signal": self.latest_macd_signal,
@@ -171,7 +175,10 @@ def analyze_security(
 
     # 判断 provider 类型以设置 data_status
     from agent_platform.finance.sample_data_provider import SampleMarketDataProvider
-    if isinstance(data_provider, SampleMarketDataProvider):
+    is_offline_provider = isinstance(data_provider, SampleMarketDataProvider) or bool(
+        getattr(data_provider, "offline", False)
+    )
+    if is_offline_provider:
         data_status = "offline_sample"
         prices = data_provider.get_price_history(symbol=symbol, start=start, end=end)
     else:
@@ -237,6 +244,8 @@ def analyze_security(
         latest_cci=float(latest["cci"]),
         latest_ema12=float(latest["ema12"]),
         latest_ema26=float(latest["ema26"]),
+        latest_volume=float(latest["volume"]),
+        latest_volume_ma5=float(latest["volume_ma5"]),
         disclaimer=DISCLAIMER,
         price_history=prices,
         data_status=data_status,

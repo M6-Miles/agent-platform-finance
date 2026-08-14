@@ -27,7 +27,49 @@ from typing import Any
 from agent_platform.mcp.envelope import err_envelope, ok_envelope
 
 # 样例数据来源标识 —— 前缀 offline_sample 让溯源检查一眼看出非实时
-SAMPLE_SOURCE = "offline_sample/offline_sample_data.py"
+SAMPLE_SOURCE = "offline_sample/内置样例数据(offline_sample_data.py)"
+
+
+def get_offline_price_history(
+    *, symbol: str, start: str = "", end: str = ""
+) -> dict[str, Any]:
+    """离线日线行情，字段与 MarketDataProvider 的标准 OHLCV 契约一致。"""
+    tool = "get_offline_price_history"
+    params = {"symbol": symbol, "start": start, "end": end}
+    try:
+        from datetime import date
+
+        from agent_platform.finance.sample_data_provider import SampleMarketDataProvider
+
+        start_date = date.fromisoformat(start) if start else None
+        end_date = date.fromisoformat(end) if end else None
+        frame = SampleMarketDataProvider().get_price_history(symbol, start_date, end_date)
+        records = frame.to_dict(orient="records")
+        for record in records:
+            if hasattr(record.get("date"), "isoformat"):
+                record["date"] = record["date"].isoformat()
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc, params)
+    return ok_envelope(
+        tool=tool,
+        source=SAMPLE_SOURCE,
+        data={"symbol": symbol, "rows": len(records), "records": records, "is_sample": True},
+        params=params,
+    )
+
+
+def get_offline_realtime_quote(*, symbol: str) -> dict[str, Any]:
+    """离线报价样例；明确标记非实时，不会伪装成真实行情。"""
+    tool = "get_offline_realtime_quote"
+    params = {"symbol": symbol}
+    try:
+        from agent_platform.finance.sample_data_provider import SampleMarketDataProvider
+
+        data = SampleMarketDataProvider().get_realtime_quote(symbol)
+        data["is_sample"] = True
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc, params)
+    return ok_envelope(tool=tool, source=SAMPLE_SOURCE, data=data, params=params)
 
 
 def _fail(tool: str, exc: Exception, params: dict[str, Any]) -> dict[str, Any]:
@@ -104,6 +146,22 @@ def get_offline_market_regime(
 
 def register_all(reg: Any) -> None:
     """把离线样例工具注册进注册表。requires_network 全为 False。"""
+    reg.register(
+        "get_offline_price_history",
+        get_offline_price_history,
+        description="离线日线 OHLCV 样例，确定性、零网络",
+        requires_network=False,
+        provider="offline",
+        category="history",
+    )
+    reg.register(
+        "get_offline_realtime_quote",
+        get_offline_realtime_quote,
+        description="离线报价样例，明确非实时、零网络",
+        requires_network=False,
+        provider="offline",
+        category="quote",
+    )
     reg.register(
         "get_offline_fundamental",
         get_offline_fundamental,

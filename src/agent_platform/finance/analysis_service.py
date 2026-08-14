@@ -70,7 +70,11 @@ INDICATOR_LOOKBACK: dict[str, int] = {
 }
 
 SERIES_COLUMNS = (
+    "open",
+    "high",
+    "low",
     "close",
+    "volume",
     "ma5",
     "ma20",
     "macd",
@@ -242,6 +246,8 @@ def analyze_window(
         latest_cci=float(latest_raw["cci"]),
         latest_ema12=float(latest_raw["ema12"]),
         latest_ema26=float(latest_raw["ema26"]),
+        latest_volume=float(latest_raw["volume"]),
+        latest_volume_ma5=float(latest_raw["volume_ma5"]),
         disclaimer=DISCLAIMER,
         price_history=in_window,
         data_status=outcome.data_status,

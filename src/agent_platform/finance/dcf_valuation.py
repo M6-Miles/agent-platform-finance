@@ -21,9 +21,10 @@ DCF 现金流折现估值
    该值随标的 ROE 变化；再按 `growth_cap` 截断，避免高 ROE 标的外推出
    不可持续的复合增长。
 
-3. **折现率不是常数**：WACC 由 CAPM 得出
-       WACC = 无风险利率 + β × 股权风险溢价
-   β 可由调用方按个股波动率传入（见 `beta_from_volatility`），不传时用 1.0。
+3. **资本口径一致**：CAPM 只计算股权成本，WACC 再按债务/股权权重加权：
+       Ke = 无风险利率 + β × 股权风险溢价
+       WACC = E/(D+E) × Ke + D/(D+E) × Kd × (1−税率)
+   缺少可靠有息债务数据时默认债务权重为 0，并在结果中明确告警。
 
 4. **两阶段模型**：显式预测期（默认 5 年）增长率由 g1 线性衰减至永续增长率
    g_t，避免"第 6 年增速断崖"这种典型 DCF 错误。终值用 Gordon 永续增长：
@@ -87,6 +88,9 @@ class DCFAssumptions:
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
     equity_risk_premium: float = DEFAULT_EQUITY_RISK_PREMIUM
     beta: float = DEFAULT_BETA
+    debt_weight: float = 0.0
+    pretax_cost_of_debt: float = 0.045
+    corporate_tax_rate: float = 0.25
     terminal_growth: float = DEFAULT_TERMINAL_GROWTH
     fcf_conversion: float = DEFAULT_FCF_CONVERSION
     payout_ratio: float = DEFAULT_PAYOUT_RATIO
@@ -99,6 +103,9 @@ class DCFAssumptions:
             "risk_free_rate": self.risk_free_rate,
             "equity_risk_premium": self.equity_risk_premium,
             "beta": self.beta,
+            "debt_weight": self.debt_weight,
+            "pretax_cost_of_debt": self.pretax_cost_of_debt,
+            "corporate_tax_rate": self.corporate_tax_rate,
             "terminal_growth": self.terminal_growth,
             "fcf_conversion": self.fcf_conversion,
             "payout_ratio": self.payout_ratio,
@@ -114,6 +121,10 @@ class DCFResult:
 
     applicable: bool
     reason_not_applicable: str | None
+    model_type: str
+    confidence_level: str
+    source: str
+    limitations: list[str]
 
     # ── 反推出的会计输入 ──
     net_income_cny: float | None
@@ -145,6 +156,10 @@ class DCFResult:
         return {
             "applicable": self.applicable,
             "reason_not_applicable": self.reason_not_applicable,
+            "model_type": self.model_type,
+            "confidence_level": self.confidence_level,
+            "source": self.source,
+            "limitations": list(self.limitations),
             "net_income_cny": self.net_income_cny,
             "book_value_cny": self.book_value_cny,
             "fcf_base_cny": self.fcf_base_cny,
@@ -173,7 +188,8 @@ class DCFResult:
             ])
         yi = 1e8  # 亿
         lines = [
-            "**DCF 估值（两阶段自由现金流折现）**",
+            "**DCF 估值代理（两阶段 FCFF proxy 折现，低可信）**",
+            f"- 模型口径：{self.model_type}；可信度：{self.confidence_level}",
             f"- 基期自由现金流：{self.fcf_base_cny / yi:.2f} 亿元"
             f"（净利润 {self.net_income_cny / yi:.2f} 亿 × 转换率 "
             f"{self.assumptions.get('fcf_conversion')}）",
@@ -226,11 +242,24 @@ def beta_from_volatility(
     return round(max(0.5, min(2.0, beta)), 3)
 
 
+def compute_cost_of_equity(assumptions: DCFAssumptions) -> float:
+    """CAPM 股权成本 Ke = rf + β × ERP。"""
+    return assumptions.risk_free_rate + assumptions.beta * assumptions.equity_risk_premium
+
+
 def compute_wacc(assumptions: DCFAssumptions) -> float:
-    """CAPM 折现率：WACC = rf + β × ERP。"""
+    """资本结构加权成本，不再把 CAPM 股权成本直接冒充 WACC。"""
+    debt_weight = assumptions.debt_weight
+    if not 0.0 <= debt_weight <= 1.0:
+        raise ValueError(f"debt_weight 必须在 0–1，收到 {debt_weight}")
+    if not 0.0 <= assumptions.corporate_tax_rate <= 1.0:
+        raise ValueError("corporate_tax_rate 必须在 0–1")
+    equity_weight = 1.0 - debt_weight
     return (
-        assumptions.risk_free_rate
-        + assumptions.beta * assumptions.equity_risk_premium
+        equity_weight * compute_cost_of_equity(assumptions)
+        + debt_weight
+        * assumptions.pretax_cost_of_debt
+        * (1.0 - assumptions.corporate_tax_rate)
     )
 
 
@@ -294,6 +323,13 @@ def run_dcf(
         return DCFResult(
             applicable=False,
             reason_not_applicable=reason,
+            model_type="earnings_to_fcff_proxy",
+            confidence_level="low",
+            source="PE/PB/总市值推导，非完整现金流量表",
+            limitations=[
+                "缺少 EBIT、税项、折旧摊销、资本开支和营运资本变动",
+                "基期 FCFF 由净利润乘现金转换率近似",
+            ],
             net_income_cny=None,
             book_value_cny=None,
             fcf_base_cny=None,
@@ -389,6 +425,15 @@ def run_dcf(
             f"β 使用默认值 {DEFAULT_BETA}（未传入个股波动率），"
             f"未反映个股风险差异"
         )
+    if a.debt_weight == 0.0:
+        warnings.append(
+            "缺少可靠的有息债务/权益权重，WACC 暂按债务权重 0 计算；"
+            "该假设可能低估高杠杆公司的资本成本"
+        )
+    warnings.append(
+        "当前为低可信估值代理：缺少 EBIT、税项、折旧摊销、资本开支和"
+        "营运资本变动，FCFF 基数由净利润×现金转换率近似，不等同真实财报 FCFF"
+    )
 
     # ── 显式预测期逐年现金流与现值 ──
     yearly: list[dict[str, float]] = []
@@ -439,13 +484,21 @@ def run_dcf(
         "EV = Σ_{t=1..N} FCF_0 × Π(1+g_t) / (1+WACC)^t "
         "+ [FCF_N × (1+g_term) / (WACC − g_term)] / (1+WACC)^N；"
         "股权价值 = EV − 净债务；"
-        "WACC = rf + β×ERP；g_1 = 隐含ROE × (1−分红率)，按上限截断；"
+        "Ke = rf + β×ERP；WACC = E/(D+E)×Ke + D/(D+E)×Kd×(1−Tax)；"
+        "g_1 = 隐含ROE × (1−分红率)，按上限截断；"
         "g_t 由 g_1 线性衰减至 g_term"
     )
 
     return DCFResult(
         applicable=True,
         reason_not_applicable=None,
+        model_type="earnings_to_fcff_proxy",
+        confidence_level="low",
+        source="PE/PB/总市值推导，非完整现金流量表",
+        limitations=[
+            "缺少 EBIT、税项、折旧摊销、资本开支和营运资本变动",
+            "基期 FCFF 由净利润乘现金转换率近似",
+        ],
         net_income_cny=round(net_income, 2),
         book_value_cny=round(book_value, 2),
         fcf_base_cny=round(fcf_base, 2),

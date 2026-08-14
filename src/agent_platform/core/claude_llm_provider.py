@@ -8,6 +8,11 @@ from agent_platform.core.llm_provider import (
     ModelReply,
     ToolCall,
     ToolDescription,
+    LLMAuthenticationError,
+    LLMInvalidRequestError,
+    LLMNetworkError,
+    LLMRateLimitError,
+    LLMServerError,
 )
 
 
@@ -78,15 +83,20 @@ class ClaudeLLMProvider:
                 tools=anthropic_tools,  # type: ignore[arg-type]
             )
         except Exception as exc:
-            error_text = (
-                f"Claude API 调用失败：{exc}\n\n"
-                "请检查：\n"
-                "1. ANTHROPIC_API_KEY 是否正确（https://console.anthropic.com/）\n"
-                "2. 网络是否通畅\n"
-                "3. API 余额是否充足\n\n"
-                "你也可以在侧边栏将 LLM Provider 切换回 'mock' 继续使用离线演示。"
-            )
-            return ModelReply(text=error_text)
+            import anthropic
+
+            if isinstance(exc, anthropic.AuthenticationError):
+                raise LLMAuthenticationError("LLM 凭证无效或无权限") from exc
+            if isinstance(exc, anthropic.RateLimitError):
+                raise LLMRateLimitError("LLM 请求频率受限") from exc
+            if isinstance(exc, (anthropic.APITimeoutError, anthropic.APIConnectionError)):
+                raise LLMNetworkError("LLM 网络连接失败") from exc
+            if isinstance(exc, anthropic.APIStatusError):
+                status = int(getattr(exc, "status_code", 0) or 0)
+                if 500 <= status <= 599:
+                    raise LLMServerError("LLM 服务暂时不可用") from exc
+                raise LLMInvalidRequestError("LLM 请求无效") from exc
+            raise LLMInvalidRequestError("LLM 调用失败") from exc
 
         # 解析 Claude 响应
         tool_calls: list[ToolCall] = []
@@ -106,4 +116,6 @@ class ClaudeLLMProvider:
         return ModelReply(
             text="\n".join(text_parts) if text_parts else "正在调用工具分析…",
             tool_calls=tuple(tool_calls),
+            input_tokens=int(getattr(response.usage, "input_tokens", 0) or 0),
+            output_tokens=int(getattr(response.usage, "output_tokens", 0) or 0),
         )

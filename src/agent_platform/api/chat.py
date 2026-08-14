@@ -15,9 +15,10 @@ Agent 对话 API
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from agent_platform.finance.data_status import normalize_data_mode
@@ -85,7 +86,7 @@ _HARNESS_GUARDRAILS = (
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat_with_agent(req: ChatRequest) -> ChatResponse:
+def chat_with_agent(req: ChatRequest, request: Request) -> ChatResponse:
     """后端 Agent 对话。密钥仅在后端，浏览器不持有任何凭据。"""
     from agent_platform.api.main import get_application_service
 
@@ -94,13 +95,34 @@ def chat_with_agent(req: ChatRequest) -> ChatResponse:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    service = get_application_service()
+    from agent_platform.api.main import _authorize, _claim
+    if req.session_id:
+        _authorize(request, "session", req.session_id)
+    started_at = time.perf_counter()
     try:
-        result = get_application_service().chat(
+        result = service.chat(
             req.message, req.session_id, data_mode=mode
         )
     except ValueError as exc:
+        service.observability.record_call(
+            agent_name="chat_agent", task=req.message[:200],
+            duration_s=time.perf_counter() - started_at, success=False,
+            guardrail_violations=[str(exc)],
+        )
         status = 404 if "会话不存在" in str(exc) else 400
         raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+    service.observability.record_call(
+        agent_name="chat_agent", task=req.message[:200],
+        duration_s=time.perf_counter() - started_at,
+        success=not bool(result.guardrail_violations),
+        input_tokens=result.run.input_tokens,
+        output_tokens=result.run.output_tokens,
+        guardrail_violations=list(result.guardrail_violations),
+        retries=result.harness_retries,
+    )
+    _claim(request, "session", result.session_id)
 
     tool_steps = [
         ToolStep(

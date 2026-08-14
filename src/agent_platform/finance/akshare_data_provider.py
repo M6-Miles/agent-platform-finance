@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import logging
-import time
+import re
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -18,6 +18,8 @@ from agent_platform.finance.market_data_provider import SecurityInfo
 
 StockListLoader = Callable[[], pd.DataFrame]
 HistoryLoader = Callable[..., pd.DataFrame]
+
+logger = logging.getLogger(__name__)
 
 
 class AkShareMarketDataProvider:
@@ -38,6 +40,15 @@ class AkShareMarketDataProvider:
         self._stock_list_cache: tuple[datetime, pd.DataFrame] | None = None
         self._stock_list_lock = threading.Lock()
         self._STOCK_LIST_TTL_SECONDS: int = 3600  # 1小时内复用缓存
+
+        # 网络弹性：限流器和熔断器（生产路径）
+        from agent_platform.finance.network_resilience import CircuitBreaker, RateLimiter
+        self._rate_limiter = RateLimiter(max_calls=10, window_s=1.0)  # 每秒最多10次
+        self._circuit_breaker = CircuitBreaker(
+            failure_threshold=5,
+            recovery_timeout_s=30.0,
+            half_open_max_calls=1,
+        )
 
     def _load_akshare(self) -> Any:
         try:
@@ -61,7 +72,12 @@ class AkShareMarketDataProvider:
             if loader is None:
                 loader = self._load_akshare().stock_info_a_code_name
             try:
-                data = loader()
+                if self._stock_list_loader is not None:
+                    # 测试 mock 路径：直接调用，不经过限流/熔断/重试
+                    data = loader()
+                else:
+                    # 生产路径：统一网络调用入口
+                    data = self._network_call(loader, context="获取A股证券列表")
             except Exception as exc:
                 raise MarketDataUnavailableError(
                     f"AkShare 获取 A 股证券列表失败：{exc}"
@@ -106,8 +122,6 @@ class AkShareMarketDataProvider:
         if effective_start > effective_end:
             raise ValueError("开始日期不能晚于结束日期")
 
-        _max_attempts = 3
-        _last_exc: Exception | None = None
         raw = None
 
         if self._history_loader is not None:
@@ -132,27 +146,24 @@ class AkShareMarketDataProvider:
             prefix = "sh" if market == "上交所" else "bj" if market == "北交所" else "sz"
             daily_sym = f"{prefix}{normalized_symbol}"
 
-            for _attempt in range(_max_attempts):
-                try:
-                    raw = ak_module.stock_zh_a_daily(
-                        symbol=daily_sym,
-                        start_date=effective_start.strftime("%Y%m%d"),
-                        end_date=effective_end.strftime("%Y%m%d"),
-                        adjust="qfq",
-                    )
-                    break
-                except Exception as exc:
-                    _last_exc = exc
-                    if _attempt < _max_attempts - 1:
-                        time.sleep(1.5)
+            def _fetch_daily():
+                return ak_module.stock_zh_a_daily(
+                    symbol=daily_sym,
+                    start_date=effective_start.strftime("%Y%m%d"),
+                    end_date=effective_end.strftime("%Y%m%d"),
+                    adjust="qfq",
+                )
 
-            if raw is None:
-                # Stooq 全部失败，尝试 curl_cffi 直调东方财富（备用）
+            try:
+                raw = self._network_call(_fetch_daily, context=f"获取{normalized_symbol}日线")
+            except Exception as exc:
+                _last_exc = exc
+                # Stooq 失败，尝试 curl_cffi 直调东方财富（备用）
                 raw = self._fallback_daily(normalized_symbol, effective_start, effective_end)
                 if raw is None:
                     raise MarketDataUnavailableError(
                         f"AkShare 获取 {normalized_symbol} 日线失败"
-                        f"（Stooq 已重试 {_max_attempts} 次，curl_cffi 备用也失败）：{_last_exc}"
+                        f"（Stooq 已重试，curl_cffi 备用也失败）：{_last_exc}"
                     ) from _last_exc
         if raw is None or raw.empty:
             raise InvalidSecuritySymbolError(
@@ -185,6 +196,7 @@ class AkShareMarketDataProvider:
             raise MarketDataUnavailableError(
                 f"AkShare 返回的 {normalized_symbol} 日线缺少有效价格字段。"
             )
+        self._validate_ohlcv(result, normalized_symbol)
 
         name = self._lookup_name(normalized_symbol)
         result["market"] = self.market_for_symbol(normalized_symbol)
@@ -277,12 +289,12 @@ class AkShareMarketDataProvider:
         return f"A股 {symbol}"
 
     def get_realtime_quote(self, symbol: str) -> dict:
-        """获取实时行情快照（腾讯行情分钟线接口）。
+        """获取腾讯公开行情快照。
 
         仅返回真实行情。接口不可用时抛 ``MarketDataUnavailableError``，
-        不生成任何模拟或随机价格。
+        不生成任何模拟或随机价格。快速快照一次响应即包含名称、现价、
+        昨收和报价时间，避免分钟线、日线和名称接口串行造成长时间等待。
         """
-        ak_module = self._load_akshare()
         normalized = self.normalize_symbol(symbol)
         _log = logging.getLogger(__name__)
 
@@ -298,28 +310,12 @@ class AkShareMarketDataProvider:
             tencent_sym = f"sz{normalized}"
 
         try:
-            df = ak_module.stock_zh_a_minute(symbol=tencent_sym, period="1", adjust="")
-            if df is None or df.empty:
-                _log.warning("腾讯行情返回空数据 %s", normalized)
-                self._raise_quote_unavailable(normalized, "腾讯行情接口返回空数据")
-
-            # 最新分钟收盘价 = 当前价格；首根K线开盘 ≈ 今日参考开盘
-            latest_price = float(df.iloc[-1]["close"])
-            first_open   = float(df.iloc[0]["open"])
-            prev_close   = first_open if first_open > 0 else latest_price
-            change_pct   = round((latest_price - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0
-
-            return {
-                "symbol":     normalized,
-                "name":       self._get_name_via_individual_info(normalized) or f"A股 {normalized}",
-                "price":      latest_price,
-                "prev_close": round(prev_close, 2),
-                "change_pct": change_pct,
-                "market":     self.market_for_symbol(normalized),
-                "source":     "腾讯行情实时数据",
-                "data_status": "live",
-                "fallback_reason": None,
-            }
+            # 测试注入的 AkShare loader 保留分钟线契约；生产实例使用更快的
+            # 腾讯轻量快照，避免为一次报价下载整段分钟数据。
+            if "_load_akshare" in self.__dict__:
+                return self._get_realtime_quote_from_minute_loader(normalized)
+            payload = self._fetch_tencent_snapshot(tencent_sym)
+            return self._parse_tencent_snapshot(payload, normalized)
         except MarketDataUnavailableError:
             # 已是显式不可用（空数据分支），保持原因不被包装成第二层错误
             raise
@@ -328,6 +324,220 @@ class AkShareMarketDataProvider:
             self._raise_quote_unavailable(
                 normalized, f"腾讯行情接口失败（{type(exc).__name__}）：{exc}"
             )
+
+    def _get_realtime_quote_from_minute_loader(self, symbol: str) -> dict:
+        """兼容注入式测试 loader 的分钟线校验路径。"""
+        ak_module = self._load_akshare()
+        market = self.market_for_symbol(symbol)
+        tencent_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
+        frame = ak_module.stock_zh_a_minute(symbol=tencent_symbol, period="1", adjust="")
+        if frame is None or frame.empty:
+            self._raise_quote_unavailable(symbol, "腾讯行情接口返回空数据")
+        latest_price = float(frame.iloc[-1]["close"])
+        prev_close = self._extract_previous_close(frame)
+        if prev_close is None:
+            latest_day = self._latest_quote_day(frame)
+            prev_close = self._get_previous_daily_close(ak_module, symbol, latest_day)
+        updated_at = self._latest_quote_timestamp(frame)
+        if latest_price <= 0 or prev_close is None or prev_close <= 0 or updated_at is None:
+            self._raise_quote_unavailable(symbol, "分钟行情字段校验失败")
+        return {
+            "symbol": symbol,
+            "name": self._get_name_via_individual_info(symbol) or f"A股 {symbol}",
+            "price": latest_price,
+            "prev_close": round(prev_close, 2),
+            "change_pct": round((latest_price - prev_close) / prev_close * 100, 2),
+            "market": market,
+            "source": "腾讯行情实时数据（昨收经上一交易日校验）",
+            "updated_at": updated_at,
+            "data_status": "live",
+            "fallback_reason": None,
+        }
+
+    @staticmethod
+    def _fetch_tencent_snapshot(tencent_symbol: str) -> str:
+        """单次获取轻量快照；2.2 秒后终止，不执行隐藏重试。"""
+        import httpx
+
+        response = httpx.get(
+            f"https://qt.gtimg.cn/q={tencent_symbol}",
+            headers={"Referer": "https://gu.qq.com/"},
+            timeout=httpx.Timeout(2.2),
+        )
+        response.raise_for_status()
+        return response.content.decode("gb18030", errors="strict")
+
+    def _parse_tencent_snapshot(self, payload: str, symbol: str) -> dict:
+        match = re.search(r'="(.*)";?\s*$', payload.strip())
+        if match is None:
+            self._raise_quote_unavailable(symbol, "腾讯行情快照格式无效")
+        fields = match.group(1).split("~")
+        if len(fields) <= 32:
+            self._raise_quote_unavailable(symbol, "腾讯行情快照字段不完整")
+        try:
+            name = fields[1].strip()
+            response_symbol = fields[2].strip()
+            price = float(fields[3])
+            prev_close = float(fields[4])
+            quote_time = datetime.strptime(fields[30], "%Y%m%d%H%M%S")
+            change_pct = float(fields[32])
+        except (TypeError, ValueError) as exc:
+            self._raise_quote_unavailable(symbol, f"腾讯行情快照字段无法解析：{exc}")
+        if response_symbol != symbol or price <= 0 or prev_close <= 0:
+            self._raise_quote_unavailable(symbol, "腾讯行情快照证券或价格校验失败")
+        return {
+            "symbol": symbol,
+            "name": name or f"A股 {symbol}",
+            "price": price,
+            "prev_close": prev_close,
+            "change_pct": round(change_pct, 2),
+            "market": self.market_for_symbol(symbol),
+            "source": "腾讯证券公开行情快照",
+            "updated_at": quote_time.isoformat(),
+            "data_status": "live",
+            "fallback_reason": None,
+        }
+
+    @staticmethod
+    def _categorize_akshare_error(exc: Exception) -> str:
+        """判断 AkShare 错误是否可重试。"""
+        from agent_platform.finance.network_resilience import ErrorCategory, categorize_error
+        category = categorize_error(exc)
+        if category == ErrorCategory.RETRYABLE:
+            return "retryable"
+        if category == ErrorCategory.NON_RETRYABLE:
+            return "non_retryable"
+        # UNKNOWN 默认不重试，避免无限循环
+        return "non_retryable"
+
+    def _network_call(self, func: Callable[[], Any], *, context: str = "") -> Any:
+        """统一网络调用入口：限流 + 熔断 + 重试。
+
+        只在生产路径使用（非测试 mock）。
+
+        注意：AkShare SDK 多数接口无法稳定传递 per-call timeout 参数，
+        超时依赖其底层 HTTP 栈（requests/curl_cffi）的默认行为。
+        项目会并发请求（Agent + 网络数据 + LLM API），不能通过全局
+        socket.setdefaulttimeout() 修改进程级状态。对可直接控制的
+        curl_cffi 请求（如 _fallback_daily）保留 timeout=15 参数。
+        """
+        from agent_platform.finance.network_resilience import (
+            CircuitBreakerOpenError,
+            RetryConfig,
+            call_with_retry,
+        )
+
+        # 1. 限流
+        if not self._rate_limiter.acquire(timeout=30.0):
+            raise MarketDataUnavailableError(
+                f"{context} 限流等待超时（30秒内未获得调用许可）"
+            )
+
+        # 2. 熔断检查 + 重试
+        # 超时依赖底层 HTTP 栈（requests 默认连接超时，curl_cffi 显式 timeout 参数）
+        try:
+            return self._circuit_breaker.call(
+                lambda: call_with_retry(
+                    func,
+                    config=RetryConfig(max_attempts=3, base_delay_s=0.5),
+                    context=context,
+                ),
+                context=context,
+            )
+        except CircuitBreakerOpenError:
+            raise MarketDataUnavailableError(
+                f"{context} 熔断器开路（服务暂时不可用，请稍后重试）"
+            )
+
+    @staticmethod
+    def _latest_quote_day(frame: pd.DataFrame) -> date:
+        for column in ("day", "date", "datetime", "时间", "日期"):
+            if column in frame.columns:
+                parsed = pd.to_datetime(frame[column], errors="coerce").dropna()
+                if not parsed.empty:
+                    return parsed.iloc[-1].date()
+        return date.today()
+
+    @staticmethod
+    def _latest_quote_timestamp(frame: pd.DataFrame) -> str | None:
+        """Return the provider timestamp from the latest minute bar."""
+        for column in ("day", "date", "datetime", "时间", "日期"):
+            if column not in frame.columns:
+                continue
+            parsed = pd.to_datetime(frame[column], errors="coerce").dropna()
+            if not parsed.empty:
+                return parsed.iloc[-1].isoformat()
+        return None
+
+    @classmethod
+    def _extract_previous_close(cls, frame: pd.DataFrame) -> float | None:
+        for column in ("prev_close", "pre_close", "昨收"):
+            if column in frame.columns:
+                values = pd.to_numeric(frame[column], errors="coerce").dropna()
+                if not values.empty and float(values.iloc[-1]) > 0:
+                    return float(values.iloc[-1])
+
+        for column in ("day", "date", "datetime", "时间", "日期"):
+            if column not in frame.columns:
+                continue
+            timestamps = pd.to_datetime(frame[column], errors="coerce")
+            latest_day = timestamps.dropna().iloc[-1].date() if timestamps.notna().any() else None
+            if latest_day is None:
+                continue
+            previous = frame.loc[timestamps.dt.date < latest_day, "close"]
+            previous = pd.to_numeric(previous, errors="coerce").dropna()
+            if not previous.empty and float(previous.iloc[-1]) > 0:
+                return float(previous.iloc[-1])
+        return None
+
+    def _get_previous_daily_close(
+        self, ak_module: Any, symbol: str, latest_day: date,
+    ) -> float | None:
+        market = self.market_for_symbol(symbol)
+        prefix = "sh" if market == "上交所" else "bj" if market == "北交所" else "sz"
+        start = latest_day - timedelta(days=20)
+        try:
+            raw = self._network_call(
+                lambda: ak_module.stock_zh_a_daily(
+                    symbol=f"{prefix}{symbol}",
+                    start_date=start.strftime("%Y%m%d"),
+                    end_date=latest_day.strftime("%Y%m%d"),
+                    adjust="",
+                ),
+                context=f"获取{symbol}昨收价",
+            )
+        except Exception:
+            return None
+        if raw is None or raw.empty:
+            return None
+        try:
+            date_col = self._require_column(raw, ("日期", "date"), "日期")
+            close_col = self._require_column(raw, ("收盘", "close"), "收盘价")
+            dates = pd.to_datetime(raw[date_col], errors="coerce").dt.date
+            closes = pd.to_numeric(
+                raw.loc[dates < latest_day, close_col], errors="coerce"
+            ).dropna()
+            return (
+                float(closes.iloc[-1])
+                if not closes.empty and float(closes.iloc[-1]) > 0 else None
+            )
+        except (KeyError, MarketDataUnavailableError):
+            return None
+
+    @staticmethod
+    def _validate_ohlcv(frame: pd.DataFrame, symbol: str) -> None:
+        invalid_price = (
+            (frame[["open", "high", "low", "close"]] <= 0).any(axis=1)
+            | (frame["high"] < frame[["open", "close", "low"]].max(axis=1))
+            | (frame["low"] > frame[["open", "close", "high"]].min(axis=1))
+        )
+        if invalid_price.any():
+            raise MarketDataUnavailableError(f"{symbol} 日线 OHLC 关系或价格非正")
+        if frame["date"].duplicated().any():
+            raise MarketDataUnavailableError(f"{symbol} 日线包含重复交易日")
+        volumes = pd.to_numeric(frame["volume"], errors="coerce")
+        if (volumes.dropna() < 0).any():
+            raise MarketDataUnavailableError(f"{symbol} 日线成交量为负")
 
     def _get_name_via_individual_info(self, symbol: str) -> str | None:
         """用单股信息接口查公司简称（支持新股首日上市，轻量单次请求）。"""

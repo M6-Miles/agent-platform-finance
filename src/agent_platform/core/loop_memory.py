@@ -64,6 +64,18 @@ class MemoryKind:
         )
 
 
+class MemoryScope:
+    """说明书要求的三级记忆作用域。"""
+
+    WORKING: Final[str] = "working"
+    PROJECT: Final[str] = "project"
+    ORGANIZATION: Final[str] = "organization"
+
+    @classmethod
+    def all_scopes(cls) -> tuple[str, ...]:
+        return (cls.WORKING, cls.PROJECT, cls.ORGANIZATION)
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryRecord:
     """一条 Loop 记忆。``meta`` 为结构化附加字段（存库时序列化为 JSON）。"""
@@ -74,6 +86,7 @@ class MemoryRecord:
     kind: str
     content: str
     created_at: str
+    scope: str = MemoryScope.WORKING
     meta: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +97,7 @@ class MemoryRecord:
             "kind": self.kind,
             "content": self.content,
             "created_at": self.created_at,
+            "scope": self.scope,
             "meta": dict(self.meta),
         }
 
@@ -94,17 +108,19 @@ class LoopMemory(Protocol):
 
     def append(
         self, session_id: str, iteration: int, kind: str, content: str,
-        meta: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None, scope: str = MemoryScope.WORKING,
     ) -> MemoryRecord: ...
 
-    def records(self, session_id: str, kind: str | None = None) -> list[MemoryRecord]: ...
+    def records(
+        self, session_id: str, kind: str | None = None, scope: str | None = None,
+    ) -> list[MemoryRecord]: ...
 
     def latest(self, session_id: str, kind: str) -> MemoryRecord | None: ...
 
     def clear(self, session_id: str) -> int: ...
 
 
-def _validate(session_id: str, iteration: int, kind: str) -> None:
+def _validate(session_id: str, iteration: int, kind: str, scope: str) -> None:
     """入参校验。三者任一不合法都是调用方编码错误，必须立刻暴露而非写脏数据。"""
     if not str(session_id).strip():
         raise ValueError("session_id 不能为空")
@@ -113,6 +129,10 @@ def _validate(session_id: str, iteration: int, kind: str) -> None:
     if kind not in MemoryKind.all_kinds():
         raise ValueError(
             f"未知记忆类型 {kind!r}；合法值：{', '.join(MemoryKind.all_kinds())}"
+        )
+    if scope not in MemoryScope.all_scopes():
+        raise ValueError(
+            f"未知记忆作用域 {scope!r}；合法值：{', '.join(MemoryScope.all_scopes())}"
         )
 
 
@@ -124,21 +144,26 @@ class InMemoryLoopMemory:
 
     def append(
         self, session_id: str, iteration: int, kind: str, content: str,
-        meta: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None, scope: str = MemoryScope.WORKING,
     ) -> MemoryRecord:
-        _validate(session_id, iteration, kind)
+        _validate(session_id, iteration, kind, scope)
         record = MemoryRecord(
             id=str(uuid4()), session_id=session_id, iteration=iteration,
             kind=kind, content=content, created_at=_utc_now(),
+            scope=scope,
             meta=dict(meta or {}),
         )
         self._rows.append(record)
         return record
 
-    def records(self, session_id: str, kind: str | None = None) -> list[MemoryRecord]:
+    def records(
+        self, session_id: str, kind: str | None = None, scope: str | None = None,
+    ) -> list[MemoryRecord]:
         return [
             r for r in self._rows
-            if r.session_id == session_id and (kind is None or r.kind == kind)
+            if r.session_id == session_id
+            and (kind is None or r.kind == kind)
+            and (scope is None or r.scope == scope)
         ]
 
     def latest(self, session_id: str, kind: str) -> MemoryRecord | None:
@@ -205,48 +230,65 @@ class SQLiteLoopMemory:
                     kind TEXT NOT NULL,
                     content TEXT NOT NULL,
                     meta TEXT NOT NULL DEFAULT '{}',
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    scope TEXT NOT NULL DEFAULT 'working'
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_loop_memory_session
                 ON loop_memory(session_id, iteration, kind);
                 """
             )
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(loop_memory)")
+            }
+            if "scope" not in columns:
+                connection.execute(
+                    "ALTER TABLE loop_memory ADD COLUMN scope TEXT NOT NULL DEFAULT 'working'"
+                )
 
     def append(
         self, session_id: str, iteration: int, kind: str, content: str,
-        meta: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None, scope: str = MemoryScope.WORKING,
     ) -> MemoryRecord:
-        _validate(session_id, iteration, kind)
+        _validate(session_id, iteration, kind, scope)
         record = MemoryRecord(
             id=str(uuid4()), session_id=session_id, iteration=iteration,
             kind=kind, content=content, created_at=_utc_now(),
+            scope=scope,
             meta=dict(meta or {}),
         )
         with self._session() as connection:
             connection.execute(
                 """
-                INSERT INTO loop_memory(id, session_id, iteration, kind, content, meta, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO loop_memory(
+                    id, session_id, iteration, kind, content, meta, created_at, scope
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id, record.session_id, record.iteration, record.kind,
                     record.content,
                     json.dumps(record.meta, ensure_ascii=False),
-                    record.created_at,
+                    record.created_at, record.scope,
                 ),
             )
         return record
 
-    def records(self, session_id: str, kind: str | None = None) -> list[MemoryRecord]:
+    def records(
+        self, session_id: str, kind: str | None = None, scope: str | None = None,
+    ) -> list[MemoryRecord]:
         sql = (
-            "SELECT id, session_id, iteration, kind, content, meta, created_at"
+            "SELECT id, session_id, iteration, kind, content, meta, created_at, scope"
             " FROM loop_memory WHERE session_id = ?"
         )
         params: list[Any] = [session_id]
         if kind is not None:
             sql += " AND kind = ?"
             params.append(kind)
+        if scope is not None:
+            if scope not in MemoryScope.all_scopes():
+                raise ValueError(f"未知记忆作用域 {scope!r}")
+            sql += " AND scope = ?"
+            params.append(scope)
         # rowid 兜底：同一轮同一秒写入多条时，靠 rowid 保持写入先后确定。
         sql += " ORDER BY iteration ASC, rowid ASC"
         with self._session() as connection:
@@ -278,5 +320,5 @@ class SQLiteLoopMemory:
         return MemoryRecord(
             id=row["id"], session_id=row["session_id"], iteration=row["iteration"],
             kind=row["kind"], content=row["content"], created_at=row["created_at"],
-            meta=meta,
+            scope=row["scope"], meta=meta,
         )

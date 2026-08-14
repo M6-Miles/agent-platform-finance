@@ -315,3 +315,77 @@ class MockBroker:
             "total_trades": len(self._trade_history),
             "disclaimer": DISCLAIMER,
         }
+
+    def export_state(self) -> dict:
+        """导出可 JSON 持久化快照；不包含任何真实券商连接信息。"""
+        return {
+            "initial_cash": self.initial_cash,
+            "cash": self.cash,
+            "commission_pct": self.commission_pct * 100,
+            "slippage_pct": self.slippage_pct * 100,
+            "order_counter": self._order_counter,
+            "orders": [
+                {
+                    "order_id": order.order_id,
+                    "symbol": order.symbol,
+                    "side": order.side.value,
+                    "order_type": order.order_type.value,
+                    "quantity": order.quantity,
+                    "limit_price": order.limit_price,
+                    "status": order.status.value,
+                    "filled_price": order.filled_price,
+                    "filled_quantity": order.filled_quantity,
+                    "created_at": order.created_at,
+                    "filled_at": order.filled_at,
+                    "reject_reason": order.reject_reason,
+                }
+                for order in self._orders.values()
+            ],
+            "positions": [
+                {
+                    "symbol": position.symbol,
+                    "quantity": position.quantity,
+                    "avg_cost": position.avg_cost,
+                    "current_price": position.current_price,
+                }
+                for position in self._positions.values()
+            ],
+            "trade_history": [dict(item) for item in self._trade_history],
+        }
+
+    @classmethod
+    def from_state(cls, state: dict) -> "MockBroker":
+        """从持久化快照恢复，供服务重启后继续模拟撮合。"""
+        broker = cls(
+            initial_cash=float(state["initial_cash"]),
+            commission_pct=float(state.get("commission_pct", 0.03)),
+            slippage_pct=float(state.get("slippage_pct", 0.1)),
+        )
+        broker.cash = float(state["cash"])
+        broker._order_counter = int(state.get("order_counter", 0))
+        for raw in state.get("orders", []):
+            order = Order(
+                order_id=str(raw["order_id"]),
+                symbol=str(raw["symbol"]),
+                side=OrderSide(raw["side"]),
+                order_type=OrderType(raw["order_type"]),
+                quantity=int(raw["quantity"]),
+                limit_price=raw.get("limit_price"),
+                status=OrderStatus(raw["status"]),
+                filled_price=raw.get("filled_price"),
+                filled_quantity=int(raw.get("filled_quantity", 0)),
+                created_at=str(raw["created_at"]),
+                filled_at=raw.get("filled_at"),
+                reject_reason=raw.get("reject_reason"),
+            )
+            broker._orders[order.order_id] = order
+        for raw in state.get("positions", []):
+            position = Position(
+                symbol=str(raw["symbol"]),
+                quantity=int(raw["quantity"]),
+                avg_cost=float(raw["avg_cost"]),
+                current_price=float(raw.get("current_price", 0.0)),
+            )
+            broker._positions[position.symbol] = position
+        broker._trade_history = [dict(item) for item in state.get("trade_history", [])]
+        return broker

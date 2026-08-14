@@ -27,6 +27,7 @@ TRADER_SCHEMA: dict[str, Any] = {
         "signal": {"type": "string", "enum": ["buy", "sell", "hold"]},
         "target_price_low": {},
         "target_price_high": {},
+        "entry_price": {},
         "stop_loss_price": {},
         "position_pct_suggestion": {"type": "number", "minimum": 0, "maximum": 100},
         "rationale": {"type": "string"},
@@ -58,6 +59,7 @@ class TraderResult:
     signal: str                      # buy / sell / hold
     target_price_low: float | None
     target_price_high: float | None
+    entry_price: float | None
     stop_loss_price: float | None
     position_pct_suggestion: float   # 0–100（受 _MAX_AUTO_POSITION_PCT 约束）
     rationale: str
@@ -71,6 +73,7 @@ class TraderResult:
             "signal": self.signal,
             "target_price_low": self.target_price_low,
             "target_price_high": self.target_price_high,
+            "entry_price": self.entry_price,
             "stop_loss_price": self.stop_loss_price,
             "position_pct_suggestion": self.position_pct_suggestion,
             "rationale": self.rationale,
@@ -159,6 +162,7 @@ def generate_trade_signal(
         signal=signal,
         target_price_low=tgt_low,
         target_price_high=tgt_high,
+        entry_price=float(close) if close else None,
         stop_loss_price=stop_loss,
         position_pct_suggestion=position,
         rationale=rationale,

@@ -12,7 +12,9 @@ _env_path = PROJECT_ROOT / ".env"
 if _env_path.exists():
     try:
         from dotenv import load_dotenv
-        load_dotenv(_env_path, override=True)
+        # Explicit process settings must win over local defaults.  This is
+        # required for safe test/deployment overrides such as LLM_PROVIDER=mock.
+        load_dotenv(_env_path, override=False)
     except ImportError:
         pass  # python-dotenv 不可用时不报错
 DEFAULT_APP_NAME = "通用 Agent 平台及证券金融分析应用"
@@ -36,6 +38,14 @@ class Settings:
     #   False（默认）— 使用 SQLite，checkpoint 写磁盘，interrupt 跨进程可恢复
     #   True          — 使用 MemorySaver（仅测试/临时开发），不跨进程、不跨实例恢复
     langgraph_use_memory_saver: bool = False
+    paper_monitor_enabled: bool = False
+    paper_monitor_poll_interval_s: float = 30.0
+    auth_enabled: bool = False
+    auth_secret: str = ""
+    auth_token_ttl_s: int = 28_800
+    auth_registration_enabled: bool = False
+    allowed_origins: tuple[str, ...] = ("http://127.0.0.1:8003", "http://localhost:8003")
+    trusted_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "testserver")
 
 
 def _resolve_project_path(value: str | Path) -> Path:
@@ -52,7 +62,7 @@ def _parse_bool(value: str) -> bool:
 
 
 def get_settings() -> Settings:
-    return Settings(
+    settings = Settings(
         app_name=os.getenv("APP_NAME", DEFAULT_APP_NAME),
         app_env=os.getenv("APP_ENV", "local"),
         llm_provider=os.getenv("LLM_PROVIDER", "mock"),
@@ -70,4 +80,34 @@ def get_settings() -> Settings:
         langgraph_use_memory_saver=_parse_bool(
             os.getenv("LANGGRAPH_USE_MEMORY_SAVER", "false")
         ),
+        paper_monitor_enabled=_parse_bool(os.getenv("PAPER_MONITOR_ENABLED", "false")),
+        paper_monitor_poll_interval_s=float(
+            os.getenv("PAPER_MONITOR_POLL_INTERVAL_S", "30")
+        ),
+        auth_enabled=_parse_bool(os.getenv("AUTH_ENABLED", "false")),
+        auth_secret=os.getenv("AUTH_SECRET", ""),
+        auth_token_ttl_s=int(os.getenv("AUTH_TOKEN_TTL_S", "28800")),
+        auth_registration_enabled=_parse_bool(
+            os.getenv("AUTH_REGISTRATION_ENABLED", "false")
+        ),
+        allowed_origins=tuple(
+            item.strip() for item in os.getenv(
+                "ALLOWED_ORIGINS", "http://127.0.0.1:8003,http://localhost:8003"
+            ).split(",") if item.strip()
+        ),
+        trusted_hosts=tuple(
+            item.strip() for item in os.getenv(
+                "TRUSTED_HOSTS", "127.0.0.1,localhost,testserver"
+            ).split(",") if item.strip()
+        ),
     )
+    if settings.app_env.lower() in {"production", "prod"}:
+        if not settings.auth_enabled:
+            raise RuntimeError("production 环境必须设置 AUTH_ENABLED=true")
+        if len(settings.auth_secret) < 32:
+            raise RuntimeError("production 环境 AUTH_SECRET 至少需要 32 个字符")
+        if "*" in settings.allowed_origins or "*" in settings.trusted_hosts:
+            raise RuntimeError("production 环境禁止使用通配符 CORS 或 TrustedHost")
+    if settings.auth_enabled and len(settings.auth_secret) < 32:
+        raise RuntimeError("启用认证时 AUTH_SECRET 至少需要 32 个字符")
+    return settings

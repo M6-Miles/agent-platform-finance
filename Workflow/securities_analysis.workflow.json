@@ -20,7 +20,9 @@
     "keys": [
       { "name": "symbol", "description": "输入股票代码。" },
       { "name": "request_id", "description": "本次分析 ID，缺省自动生成。" },
-      { "name": "data_mode", "description": "auto=优先实时并可降级；offline=完全跳过 AkShare，零网络调用。" },
+      { "name": "run_id", "description": "对外暴露的运行 ID，与 request_id 值一致。" },
+      { "name": "requested_data_mode", "description": "用户请求的数据模式，保留 auto/offline 原始意图。" },
+      { "name": "data_mode", "description": "实际生效的数据模式；样例代码的 auto 请求会解析为 offline。" },
       { "name": "technical_analysis", "description": "技术分析结果字典，technical_agent 独占写入。" },
       { "name": "fundamental_analysis", "description": "基本面分析结果字典，fundamental_agent 独占写入。" },
       { "name": "industry_analysis", "description": "行业分析结果字典，industry_agent 独占写入。" },
@@ -36,7 +38,11 @@
       { "name": "final_action", "description": "execute / block / manual_review。" },
       { "name": "errors", "description": "错误累积列表，允许多个并行节点安全追加。", "reducer": "operator.add" },
       { "name": "trace", "description": "legacy 上下文字典，供 application_service 向后兼容。" },
-      { "name": "trace_entries", "description": "逐节点计时记录，允许多节点追加。", "reducer": "operator.add" }
+      { "name": "specialist_audit", "description": "四个 Specialist 的 AgentLoop/Harness 审计记录，允许并行节点追加。", "reducer": "operator.add" },
+      { "name": "trace_entries", "description": "逐节点计时记录，允许多节点追加。", "reducer": "operator.add" },
+      { "name": "information_evidence", "description": "新闻、公告、研报、宏观和利率 MCP 的裁剪摘要，不保存正文。" },
+      { "name": "information_trace", "description": "信息 MCP 调用的成功、不可用与离线阻断汇总。" },
+      { "name": "information_limitations", "description": "信息工具不可用时的限制说明，不计为核心流程错误。" }
     ]
   },
   "parameters": [
@@ -62,7 +68,7 @@
       "implementation": "agent_platform.finance.securities_graph:node_technical_agent",
       "parallel_group": "analysis_fanout",
       "requires": ["symbol", "data_mode"],
-      "produces": ["technical_analysis", "errors", "trace_entries"],
+      "produces": ["technical_analysis", "specialist_audit", "errors", "trace_entries"],
       "on_error": "record_and_continue",
       "notes": "TypeError/AttributeError/NameError 视为编程错误直接 reraise；其余异常写入 errors 后继续。"
     },
@@ -74,7 +80,7 @@
       "implementation": "agent_platform.finance.securities_graph:node_fundamental_agent",
       "parallel_group": "analysis_fanout",
       "requires": ["symbol", "data_mode"],
-      "produces": ["fundamental_analysis", "errors", "trace_entries"],
+      "produces": ["fundamental_analysis", "specialist_audit", "errors", "trace_entries"],
       "on_error": "record_and_continue"
     },
     {
@@ -85,7 +91,7 @@
       "implementation": "agent_platform.finance.securities_graph:node_industry_agent",
       "parallel_group": "analysis_fanout",
       "requires": ["symbol", "data_mode"],
-      "produces": ["industry_analysis", "errors", "trace_entries"],
+      "produces": ["industry_analysis", "specialist_audit", "errors", "trace_entries"],
       "on_error": "record_and_continue"
     },
     {
@@ -96,7 +102,7 @@
       "implementation": "agent_platform.finance.securities_graph:node_market_regime_agent",
       "parallel_group": "analysis_fanout",
       "requires": ["data_mode"],
-      "produces": ["market_regime", "errors", "trace_entries"],
+      "produces": ["market_regime", "specialist_audit", "errors", "trace_entries"],
       "on_error": "record_and_continue"
     },
     {
@@ -112,8 +118,19 @@
         "industry_analysis",
         "market_regime"
       ],
-      "produces": ["synthesis", "confidence", "status", "errors", "trace_entries"],
+      "produces": ["synthesis", "confidence", "status", "information_evidence", "information_trace", "information_limitations", "errors", "trace_entries"],
       "on_error": "structured_error"
+    },
+    {
+      "id": "debate_approval",
+      "title": "多空辩论人工澄清",
+      "type": "human_approval",
+      "description": "Bull/Bear 辩论无法形成可靠结论时以 interrupt() 暂停。批准后按置信度继续，拒绝后阻断交易链。",
+      "implementation": "agent_platform.finance.securities_graph:node_debate_approval",
+      "interrupts": true,
+      "requires": ["symbol", "synthesis", "confidence"],
+      "produces": ["status", "final_action", "trace_entries"],
+      "on_error": "not_applicable"
     },
     {
       "id": "no_trade",
@@ -194,8 +211,13 @@
       "from": "synthesis_agent",
       "type": "conditional",
       "router": "agent_platform.finance.securities_graph:route_after_synthesis",
-      "description": "按置信度与错误态三分路。",
+      "description": "按辩论阻断、置信度与错误态四分路。",
       "branches": [
+        {
+          "value": "debate_approval",
+          "to": "debate_approval",
+          "when": "status != \"error\" 且 synthesis.debate_blocked is True"
+        },
         {
           "value": "no_trade",
           "to": "no_trade",
@@ -210,6 +232,29 @@
           "value": "__end__",
           "to": "__end__",
           "when": "status == \"error\"（含并行输入缺失）"
+        }
+      ]
+    },
+    {
+      "from": "debate_approval",
+      "type": "conditional",
+      "router": "agent_platform.finance.securities_graph:route_after_debate_approval",
+      "description": "人工澄清批准后按置信度继续，拒绝后终止。",
+      "branches": [
+        {
+          "value": "trader_agent",
+          "to": "trader_agent",
+          "when": "final_action != \"block\" 且 confidence > 0.3"
+        },
+        {
+          "value": "no_trade",
+          "to": "no_trade",
+          "when": "final_action != \"block\" 且 confidence <= 0.3"
+        },
+        {
+          "value": "__end__",
+          "to": "__end__",
+          "when": "final_action == \"block\""
         }
       ]
     },
@@ -296,6 +341,16 @@
     }
   ],
   "interrupts": [
+    {
+      "node": "debate_approval",
+      "payload_type": "debate_review",
+      "trigger": "synthesis_agent 输出 debate_blocked=true",
+      "conditional": true,
+      "resume_values": ["approve", "reject"],
+      "resume_api": "agent_platform.finance.securities_graph:resume_securities_analysis",
+      "payload_keys": ["type", "symbol", "reason", "synthesis"],
+      "description": "approve 后按置信度继续；reject 后 final_action=block 并终止。"
+    },
     {
       "node": "human_approval",
       "payload_type": "har_approval",

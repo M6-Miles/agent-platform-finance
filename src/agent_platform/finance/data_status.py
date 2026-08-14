@@ -16,12 +16,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import logging
 from typing import Literal
 
 import pandas as pd
 
-from agent_platform.finance.provider_factory import create_market_data_provider
 from agent_platform.finance.sample_data_provider import SampleMarketDataProvider
+
+logger = logging.getLogger(__name__)
 
 DataMode = Literal["offline", "auto"]
 
@@ -54,16 +56,56 @@ def normalize_data_mode(mode: str | None) -> str:
     return value
 
 
-def provider_for_mode(mode: str):
-    """按 data_mode 创建 Provider。offline → 样例数据；auto → 配置的真实数据源。"""
-    normalized = normalize_data_mode(mode)
+def resolve_effective_data_mode(symbol: str, requested_mode: str) -> str:
+    """解析有效数据模式（effective data mode）。
+
+    规则：
+    - requested=offline → effective=offline（显式离线）
+    - requested=auto + 样例代码(DEMO*/TEST*) → effective=offline（自动路由到离线）
+    - requested=auto + 真实代码 → effective=auto（保持联网）
+
+    返回值：'offline' 或 'auto'
+    """
+    normalized = normalize_data_mode(requested_mode)
     if normalized == "offline":
-        return create_market_data_provider("sample")
-    return create_market_data_provider("akshare")
+        return "offline"
+    # auto 模式下，样例代码自动路由到 offline
+    if is_sample_symbol(symbol):
+        return "offline"
+    return "auto"
+
+
+def provider_for_mode(mode: str):
+    """按 data_mode 创建 MCP Provider；默认业务取数不再绕过 MCP 注册表。"""
+    normalized = normalize_data_mode(mode)
+    from agent_platform.finance.mcp_market_data_provider import MCPMarketDataProvider
+
+    return MCPMarketDataProvider(offline=normalized == "offline")
 
 
 class MarketDataAllSourcesFailed(RuntimeError):
     """真实数据源与样例数据都不可用（端点转换为 HTTP 503）。"""
+
+
+def is_sample_symbol(symbol: str) -> bool:
+    """判断是否为样例代码（DEMO*/TEST*），供外部公开调用。"""
+    value = symbol.strip().upper()
+    return value.startswith("DEMO") or value.startswith("TEST")
+
+
+def _is_offline_sample_symbol(symbol: str) -> bool:
+    """内部别名，保持向后兼容。"""
+    return is_sample_symbol(symbol)
+
+
+def _public_unavailable_reason(symbol: str, exc: Exception) -> str:
+    """生成适合 API 用户阅读的错误，不暴露上游 URL 或底层连接细节。"""
+    error_name = type(exc).__name__
+    return (
+        f"真实行情源暂时无法访问（{error_name}），未返回 {symbol} 的行情。"
+        "请稍后重试，并检查本机防火墙、代理或网络访问策略。"
+        "系统未生成模拟价格，也未将其他证券的样例数据替代该结果。"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,8 +177,20 @@ def fetch_price_history(
         )
     except Exception as exc:  # noqa: BLE001 - 任何真实数据源故障都应可降级
         reason = f"真实数据源失败（{type(exc).__name__}）：{exc}"
+        if not _is_offline_sample_symbol(symbol):
+            logger.warning(
+                "real market data unavailable: symbol=%s error_type=%s error=%s",
+                symbol,
+                type(exc).__name__,
+                exc,
+            )
+            raise MarketDataAllSourcesFailed(
+                _public_unavailable_reason(symbol, exc)
+            ) from exc
         try:
-            sample = SampleMarketDataProvider()
+            from agent_platform.finance.mcp_market_data_provider import MCPMarketDataProvider
+
+            sample = MCPMarketDataProvider(offline=True)
             frame = sample.get_price_history(symbol, start=start, end=end)
         except Exception as sample_exc:  # noqa: BLE001
             raise MarketDataAllSourcesFailed(

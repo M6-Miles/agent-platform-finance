@@ -20,8 +20,11 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from datetime import date, timedelta
 from pathlib import Path
+import subprocess
+import tempfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -356,6 +359,30 @@ def test_comparison_exposes_metadata(client: TestClient) -> None:
         assert 0.0 <= stock["up_day_ratio_pct"] <= 100.0
 
 
+def test_comparison_fetches_symbols_concurrently() -> None:
+    """多个标的必须同时开始取数，避免在线模式耗时按标的数线性累加。"""
+    from agent_platform.finance.comparison_service import compare_symbols
+    from agent_platform.finance.data_status import fetch_price_history
+
+    symbols = ["DEMO001", "DEMO002", "DEMO003"]
+    barrier = threading.Barrier(len(symbols), timeout=2)
+
+    def synchronized_fetch(symbol, **kwargs):
+        barrier.wait()
+        return fetch_price_history(symbol, **kwargs)
+
+    result = compare_symbols(
+        symbols,
+        start=WIN_START,
+        end=WIN_END,
+        data_mode="offline",
+        fetcher=synchronized_fetch,
+    )
+
+    assert result.symbols == symbols
+    assert barrier.n_waiting == 0
+
+
 # ── 5. Agent 对话：单一后端路由 + 确定性行情工具 ─────────────────────────────
 
 def test_chat_route_registered_once() -> None:
@@ -365,6 +392,13 @@ def test_chat_route_registered_once() -> None:
     assert paths.count("/chat") <= 1, "存在重复的 /chat 路由"
     # 端点确实可用
     assert any(p == "/chat" for p in paths) or True  # 子路由包装后 path 不可枚举
+
+
+@pytest.mark.parametrize("message", ["000001多少钱", "请问000001现价", "查一下000001的行情"])
+def test_quote_symbol_extraction_when_adjacent_to_chinese(message: str) -> None:
+    from agent_platform.finance.quote_tool import extract_symbol
+
+    assert extract_symbol(message) == "000001"
 
 
 def test_chat_invokes_quote_tool_with_real_payload(client: TestClient) -> None:
@@ -411,6 +445,57 @@ def test_chat_quote_price_matches_provider(client: TestClient) -> None:
         "message": "DEMO001 最新价", "data_mode": "offline",
     }).json()
     assert body["quote"]["price"] == pytest.approx(round(expected["price"], 4), rel=1e-6)
+
+
+def test_auto_mode_routes_demo_quote_to_offline_sample(client: TestClient) -> None:
+    expected = SampleMarketDataProvider().get_realtime_quote("DEMO001")
+    response = client.get("/quote/DEMO001?data_mode=auto")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["price"] == pytest.approx(expected["price"])
+    assert body["data_status"] == STATUS_OFFLINE_SAMPLE
+
+
+def test_security_name_is_resolved_for_fundamental_fast_path(
+    client: TestClient, monkeypatch
+) -> None:
+    from agent_platform.finance import fundamental_agent
+    from agent_platform.finance.quote_tool import extract_symbol
+
+    assert extract_symbol("帮我分析贵州茅台的基本面") == "600519"
+    original = fundamental_agent.analyze_fundamental
+    calls: list[tuple[str, bool]] = []
+
+    def fake_fundamental(symbol: str, name: str = "", force_offline: bool = False):
+        calls.append((symbol, force_offline))
+        return original("600519", name="贵州茅台", force_offline=True)
+
+    monkeypatch.setattr(fundamental_agent, "analyze_fundamental", fake_fundamental)
+    response = client.post(
+        "/chat",
+        json={"message": "帮我分析贵州茅台的基本面", "data_mode": "auto"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["provider"] == "fundamental_agent"
+    assert calls == [("600519", False)]
+    assert "贵州茅台" in body["reply"]
+    assert "基本面分析" in body["reply"]
+    steps = [s for s in body["tool_steps"] if s["tool_name"] == "analyze_fundamental"]
+    assert len(steps) == 1
+    assert steps[0]["input"]["symbol"] == "600519"
+    assert steps[0]["status"] == "success"
+
+    second = client.post(
+        "/chat",
+        json={"message": "再看一下贵州茅台估值", "data_mode": "auto"},
+    ).json()
+    assert calls == [("600519", False)]
+    second_step = next(
+        s for s in second["tool_steps"] if s["tool_name"] == "analyze_fundamental"
+    )
+    assert second_step["output"]["cache_hit"] is True
 
 
 def test_chat_tool_failure_is_explicit_and_never_guesses(client: TestClient) -> None:
@@ -479,6 +564,26 @@ def test_frontend_has_no_random_financial_data() -> None:
         idx = text.index(fn)
         body = text[idx: idx + 4000]
         assert "Math.random" not in body, f"{fn} 内仍使用 Math.random"
+
+
+def test_frontend_chat_shows_elapsed_progress() -> None:
+    text = FRONTEND.read_text(encoding="utf-8")
+    assert "data-chat-progress" in text
+    assert "正在执行 Agent / Tool / Guardrail" in text
+    assert "clearInterval(progressTimer)" in text
+
+
+def test_frontend_distinguishes_market_data_failure_from_backend_offline() -> None:
+    text = FRONTEND.read_text(encoding="utf-8")
+    assert 'id="analysis-data-mode"' in text
+    assert 'id="analysis-data-mode" onchange="syncDataSource(this.value)"' in text
+    assert "window._lastApiStatus = resp.status" in text
+    assert "联网行情暂不可用" in text
+    assert "后端在线，但公共行情源暂时无法访问" in text
+    analysis_start = text.index("async function runAnalysisTask")
+    analysis_body = text[analysis_start:analysis_start + 7000]
+    assert "document.getElementById('analysis-data-mode')?.value || 'auto'" in analysis_body
+    assert "后端服务不可达，请先运行" not in analysis_body
 
 
 # ── 7. 回测：真实引擎 + 日期/价格不变量 ─────────────────────────────────────
@@ -767,3 +872,56 @@ def test_frontend_quantity_label_is_shares() -> None:
     assert "数量（股）" in text
     assert "数量（手）" not in text
     assert "SHARES_PER_LOT = 100" in text
+
+
+def test_frontend_paper_order_has_progress_and_idempotency() -> None:
+    text = FRONTEND.read_text(encoding="utf-8")
+    start = text.index("async function placeOrder")
+    body = text[start:start + 6500]
+    assert "request_id:requestId" in body
+    assert "quote_cache_hit" in body
+    assert "重复提交不会重复成交" in body
+    assert "订单拒绝：" not in body
+    assert "signal timed out" in body
+    assert "orderStatus === 'filled'" in body
+    assert "orderStatus === 'rejected'" in body
+    assert "订单已拒绝" in body
+    assert "订单待成交" in body
+
+
+def test_frontend_paper_account_refresh_is_single_flight() -> None:
+    text = FRONTEND.read_text(encoding="utf-8")
+    assert "let brokerOperationBusy = false" in text
+    assert "let brokerAccountLoaded = false" in text
+    assert "if (brokerOperationBusy) return false" in text
+    assert "await ensurePaperAccount({ hydrate: !brokerAccountLoaded })" in text
+    assert "if (!brokerOperationBusy) await pushTick({ manual: false })" in text
+    assert "setTimeout(async () =>" in text
+    assert "brokerAutoRefreshTimer = setInterval" not in text
+    assert 'value="30000" selected' in text
+    assert "}, 3000);" not in text
+
+
+def test_every_inline_frontend_script_has_valid_javascript() -> None:
+    text = FRONTEND.read_text(encoding="utf-8")
+    scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", text, flags=re.DOTALL)
+    assert scripts
+    for index, script in enumerate(scripts, start=1):
+        if not script.strip():
+            continue
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=f"-{index}.js", encoding="utf-8", delete=False
+        ) as handle:
+            handle.write(script)
+            path = Path(handle.name)
+        try:
+            result = subprocess.run(
+                ["node", "--check", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            assert result.returncode == 0, result.stderr
+        finally:
+            path.unlink(missing_ok=True)

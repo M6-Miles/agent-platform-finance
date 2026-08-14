@@ -53,6 +53,15 @@ from generate_sample_data import (  # noqa: E402
 # 兼容原有解包形式 (symbol, name, base, vol)
 STOCK_UNIVERSE = [(s, n, b, v) for s, n, b, v, _drift in TEST_UNIVERSE]
 
+# 联网验收必须使用交易所真实代码。TEST001-TEST020 只属于离线确定性数据集，
+# 将它们发给 AkShare 会把“样例代码不存在”误报成在线链路故障。
+ONLINE_STOCK_UNIVERSE = [
+    "600519", "000001", "601318", "600036", "000333",
+    "000858", "300750", "002594", "601166", "600276",
+    "000651", "601398", "601857", "600900", "002415",
+    "300059", "601088", "600309", "000725", "601012",
+]
+
 
 def _ensure_sample_data() -> None:
     """确保样例数据存在（委托给确定性生成器）。"""
@@ -67,19 +76,59 @@ def _ensure_sample_data() -> None:
 # A. 端到端流程（≥20只股票）
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def classify_preflight_results(results: list[dict]) -> dict[str, int]:
+    """
+    五路状态分类的纯函数（供单测）。
+
+    分类规则：
+    - execute: preflight == "execute"
+    - manual_review: preflight == "manual_review" 或 status 包含"审批"
+    - block: preflight == "block"
+    - no_trade: preflight == "no_trade"
+    - error: preflight == "error"
+
+    五类互斥（按优先级），且总和 = len(results)。
+    """
+    n_execute = 0
+    n_review = 0
+    n_block = 0
+    n_no_trade = 0
+    n_error = 0
+
+    for r in results:
+        pf = r.get("preflight")
+        if pf == "execute":
+            n_execute += 1
+        elif pf == "manual_review" or ("审批" in r.get("status", "") and not pf):
+            n_review += 1
+        elif pf == "block":
+            n_block += 1
+        elif pf == "error":
+            n_error += 1
+        elif pf == "no_trade":
+            n_no_trade += 1
+        else:
+            # 未知状态归入 error（防御性）
+            n_error += 1
+
+    return {
+        "execute": n_execute,
+        "manual_review": n_review,
+        "block": n_block,
+        "no_trade": n_no_trade,
+        "error": n_error,
+    }
+
+
 def _print_e2e_summary(results: list[dict]) -> None:
-    """打印四路计数汇总（execute/manual_review/block/error）。"""
-    n_execute = sum(1 for r in results if r.get("preflight") == "execute")
-    n_review  = sum(1 for r in results if r.get("preflight") in ("manual_review",))
-    n_har_req = sum(1 for r in results if "审批" in r.get("status", "") and "preflight" not in r)
-    n_block   = sum(1 for r in results if r.get("preflight") == "block")
-    n_error   = sum(1 for r in results if r.get("preflight") == "error")
-    n_review  += n_har_req
+    """打印五路计数汇总（execute/manual_review/block/no_trade/error）。"""
+    counts = classify_preflight_results(results)
     print(f"\n  结果汇总 ({len(results)}/20):")
-    print(f"    ✅ execute       : {n_execute}")
-    print(f"    ⚠️  manual_review : {n_review}")
-    print(f"    ⛔ block          : {n_block}")
-    print(f"    ❌ error          : {n_error}")
+    print(f"    ✅ execute       : {counts['execute']}")
+    print(f"    ⚠️  manual_review : {counts['manual_review']}")
+    print(f"    ⛔ block          : {counts['block']}")
+    print(f"    ⚪ no_trade       : {counts['no_trade']}  （正常完成但不交易，非错误）")
+    print(f"    ❌ error          : {counts['error']}  （真正异常）")
     print("  （仅 execute 计为完全通过风控，引擎：LangGraph）")
 
 
@@ -100,7 +149,7 @@ def run_e2e_batch_langgraph() -> list[dict]:
 
     graph = build_securities_graph()
     results = []
-    symbols = [s[0] for s in STOCK_UNIVERSE]
+    symbols = ONLINE_STOCK_UNIVERSE
 
     for i, symbol in enumerate(symbols, 1):
         t0 = time.time()
@@ -127,7 +176,7 @@ def run_e2e_batch_langgraph() -> list[dict]:
                 action = "error"
             else:
                 # no_trade / 低置信度
-                status = f"⚪ {status_val}"
+                status = "⚪ no_trade"
                 action = "no_trade"
 
             syn = state.get("synthesis") or {}
@@ -208,7 +257,7 @@ def run_e2e_batch_offline() -> list[dict]:
                 status = "❌ error"
                 action = "error"
             else:
-                status = f"⚪ {status_val}"
+                status = "⚪ no_trade"
                 action = "no_trade"
 
             syn = state.get("synthesis") or {}
@@ -336,11 +385,20 @@ def run_harness_exp() -> dict:
           f" {1-exp.hallucination_blocked_rate:.1%}，"
           f"降低 {hallucination_reduction:.1%}")
     print(f"  ▶ 误报率 {exp.false_positive_rate:.1%} —— 正常输出几乎不受影响")
+    print(f"  ▶ 模拟无效下游调用减少 {exp.invalid_call_reduction_rate:.1%} "
+          f"({exp.invalid_calls_no_harness} → {exp.invalid_calls_with_harness})")
+    print(f"  ▶ 端到端正确处理率 {exp.e2e_correct_rate_no_harness:.1%} → "
+          f"{exp.e2e_correct_rate_with_harness:.1%}")
 
     return {
         "hallucination_blocked_rate": exp.hallucination_blocked_rate,
         "false_positive_rate": exp.false_positive_rate,
         "pass_rate_no_harness": exp.pass_rate_no_harness,
+        "invalid_calls_no_harness": exp.invalid_calls_no_harness,
+        "invalid_calls_with_harness": exp.invalid_calls_with_harness,
+        "invalid_call_reduction_rate": exp.invalid_call_reduction_rate,
+        "e2e_correct_rate_no_harness": exp.e2e_correct_rate_no_harness,
+        "e2e_correct_rate_with_harness": exp.e2e_correct_rate_with_harness,
         "markdown": exp.to_markdown(),
     }
 
@@ -350,12 +408,13 @@ def run_harness_exp() -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def write_report(e2e: list[dict], bt: list[dict], harness: dict) -> None:
-    n_execute = sum(1 for r in e2e if r.get("preflight") == "execute")
-    n_review  = sum(1 for r in e2e if r.get("preflight") in ("manual_review", "需人工审批")
-                    or "审批" in r.get("status", ""))
-    n_block   = sum(1 for r in e2e if r.get("preflight") == "block")
-    n_error   = sum(1 for r in e2e if r.get("preflight") == "error"
-                    or r.get("status", "").startswith("❌"))
+    n_execute  = sum(1 for r in e2e if r.get("preflight") == "execute")
+    n_review   = sum(1 for r in e2e if r.get("preflight") in ("manual_review", "需人工审批")
+                     or "审批" in r.get("status", ""))
+    n_block    = sum(1 for r in e2e if r.get("preflight") == "block")
+    n_no_trade = sum(1 for r in e2e if r.get("preflight") == "no_trade")
+    n_error    = sum(1 for r in e2e if r.get("preflight") == "error")
+    n_completed = len(e2e) - n_error
     bt_ok  = [r for r in bt if r.get("sharpe_ratio", -99) >= 0.5]
     avg_sharpe = (sum(r.get("sharpe_ratio", 0) for r in bt if "sharpe_ratio" in r)
                   / max(1, len([r for r in bt if "sharpe_ratio" in r])))
@@ -367,9 +426,10 @@ def write_report(e2e: list[dict], bt: list[dict], harness: dict) -> None:
         "",
         "## 验收 A：端到端投研流程 ≥20只股票",
         "",
-        (f"**结果: {n_execute}/20 只完全通过（execute）"
-         f"  |  {n_review} 只待人工复核  |  {n_block} 只已阻断  |  {n_error} 只异常**  "
-         f"{'✅ 全部 execute' if n_execute == 20 else '⚠️ 部分需人工复核/阻断'}"),
+        (f"**工作流完成: {n_completed}/20；其中 {n_execute} 只通过执行前检查（execute）"
+         f"  |  {n_review} 只待人工复核  |  {n_block} 只已阻断"
+         f"  |  {n_no_trade} 只不交易（no_trade）  |  {n_error} 只真正异常**  "
+         f"{'✅ 20只均完成且无异常' if n_completed >= 20 else '⚠️ 未完成20只无异常验收'}"),
         "",
         "| 股票代码 | 信号 | 置信度 | 年化收益 | 耗时(s) | Preflight | 状态 |",
         "|---------|------|--------|---------|---------|-----------|------|",
@@ -414,6 +474,8 @@ def write_report(e2e: list[dict], bt: list[dict], harness: dict) -> None:
         f"| 幻觉拦截率 | **{harness['hallucination_blocked_rate']:.1%}** | Harness 开启时，幻觉输出被拦截的比例（越高越好）|",
         f"| 误报率 | **{harness['false_positive_rate']:.1%}** | 正常输出被误拦截的比例（越低越好）|",
         f"| 无保护通过率 | **{harness['pass_rate_no_harness']:.1%}** | 不使用 Harness 时幻觉直接通过的比例 |",
+        f"| 模拟无效调用减少 | **{harness['invalid_call_reduction_rate']:.1%}** | 固定评测集上的模拟下游动作，不代表生产 API 流量 |",
+        f"| 端到端正确处理率 | **{harness['e2e_correct_rate_no_harness']:.1%} → {harness['e2e_correct_rate_with_harness']:.1%}** | 固定评测集正确放行/拦截比例 |",
         "",
         f"**结论：** Harness 使幻觉输出通过率从 "
         f"{harness['pass_rate_no_harness']:.1%} 降至 "
@@ -471,12 +533,12 @@ def main() -> None:
     write_report(e2e_results, bt_results, harness_data)
 
     # 汇总（严格：只有 preflight=execute 才算完全通过）
-    n_execute = sum(1 for r in e2e_results if r.get("preflight") == "execute")
-    n_review  = sum(1 for r in e2e_results if r.get("preflight") in ("manual_review",)
-                    or "审批" in r.get("status", ""))
-    n_block   = sum(1 for r in e2e_results if r.get("preflight") == "block")
-    n_error   = sum(1 for r in e2e_results if r.get("preflight") in ("error", "no_trade")
-                    or r.get("status", "").startswith("❌"))
+    n_execute  = sum(1 for r in e2e_results if r.get("preflight") == "execute")
+    n_review   = sum(1 for r in e2e_results if r.get("preflight") in ("manual_review",)
+                     or "审批" in r.get("status", ""))
+    n_block    = sum(1 for r in e2e_results if r.get("preflight") == "block")
+    n_no_trade = sum(1 for r in e2e_results if r.get("preflight") == "no_trade")
+    n_error    = sum(1 for r in e2e_results if r.get("preflight") == "error")
     bt_vals = [r.get("sharpe_ratio", -99) for r in bt_results if "sharpe_ratio" in r]
     avg_sharpe = sum(bt_vals) / max(1, len(bt_vals))
     hr = harness_data["hallucination_blocked_rate"]
@@ -487,10 +549,13 @@ def main() -> None:
     print(f"  模式：{mode_label}")
     print(f"  编排引擎：{'LangGraph 1.x（online AkShare/Tushare）' if online else 'LangGraph 1.x（offline SampleMarketDataProvider）'}")
     print("  A. 端到端 ≥20只")
-    print(f"     ✅ execute       : {n_execute}/20  {'✅ PASS' if n_execute >= 20 else '⚠️  PARTIAL'}")
+    completed = len(e2e_results) - n_error
+    print(f"     工作流完成       : {completed}/20  {'✅ PASS' if completed >= 20 else '⚠️  PARTIAL'}")
+    print(f"     ✅ execute       : {n_execute}/20  （执行决策分布，不是工作流完成率）")
     print(f"     ⚠️  manual_review : {n_review}")
     print(f"     ⛔ block          : {n_block}")
-    print(f"     ❌ error/no_trade : {n_error}")
+    print(f"     ⚪ no_trade       : {n_no_trade}  （正常完成但不交易，非错误）")
+    print(f"     ❌ error          : {n_error}  （真正异常）")
     print(f"  B. 平均 Sharpe     : {avg_sharpe:.2f}  {'✅ PASS' if avg_sharpe >= 0.5 else '⚠️  BELOW 0.5'}")
     print(f"  C. 幻觉拦截率      : {hr:.1%}  {'✅ PASS' if hr >= 0.6 else '⚠️  CHECK'}")
     print("="*64)

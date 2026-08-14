@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import pytest
+
 # ─────────────────────── SynthesisAgent ───────────────────────────
 
 from agent_platform.finance.synthesis_agent import (
@@ -192,39 +194,67 @@ class TestAssessRisk:
             "symbol": "000001",
             "signal": "buy",
             "position_pct_suggestion": 5.0,
+            "entry_price": 100.0,
+            "stop_loss_price": 90.0,
         }
         result = assess_risk(trader)
         assert isinstance(result, RiskManagerResult)
 
     def test_to_dict_has_required_keys(self):
-        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 5.0}
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 5.0,
+                  "entry_price": 100.0, "stop_loss_price": 90.0}
         result = assess_risk(trader)
         d = result.to_dict()
         for req in RISK_MANAGER_SCHEMA["required"]:
             assert req in d
 
     def test_position_capped_at_max_single(self):
-        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 8.0}
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 8.0,
+                  "entry_price": 100.0, "stop_loss_price": 90.0}
         result = assess_risk(trader, max_single_position_pct=2.0)
         assert result.approved_position_pct == 2.0
         assert len(result.risk_flags) > 0
 
     def test_industry_concentration_reduces_position(self):
-        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 2.0}
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 2.0,
+                  "entry_price": 100.0, "stop_loss_price": 90.0}
         result = assess_risk(trader, current_industry_position_pct=29.0, max_industry_pct=30.0)
         # 当前 29% + 建议 2% = 31% > 30% → 应削减
         assert result.approved_position_pct < 2.0
 
     def test_drawdown_triggers_reduce_signal(self):
-        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 2.0}
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 2.0,
+                  "entry_price": 100.0, "stop_loss_price": 90.0}
         result = assess_risk(trader, current_drawdown_pct=20.0, max_drawdown_pct=15.0)
         assert result.final_signal == "reduce"
         assert result.approved_position_pct == 0.0
 
     def test_no_risk_flags_when_all_pass(self):
-        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 1.5}
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 1.5,
+                  "entry_price": 100.0, "stop_loss_price": 90.0}
         result = assess_risk(trader)
         assert len(result.risk_flags) == 0
+
+    def test_loss_budget_caps_position_not_raw_position(self):
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 50.0,
+                  "entry_price": 100.0, "stop_loss_price": 90.0}
+        result = assess_risk(trader)
+        assert result.approved_position_pct == 20.0
+        assert result.stop_distance_pct == 10.0
+        assert result.estimated_loss_pct == 2.0
+        assert result.risk_budget_pct == 2.0
+
+    def test_missing_stop_loss_blocks_auto_position(self):
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 5.0,
+                  "entry_price": 100.0, "stop_loss_price": None}
+        result = assess_risk(trader)
+        assert result.approved_position_pct == 0.0
+        assert any("无法计算单笔亏损" in flag for flag in result.risk_flags)
+
+    def test_loss_budget_rejects_non_positive_limit(self):
+        trader = {"symbol": "000001", "signal": "hold", "position_pct_suggestion": 0.0}
+        with pytest.raises(ValueError, match="max_loss_pct"):
+            assess_risk(trader, max_loss_pct=0.0)
 
 
 # ─────────────────────── TradingHarness ───────────────────────────
@@ -307,3 +337,69 @@ class TestTradingHarness:
         assert "Schema 有效性" in md
         assert "置信度阈值" in md
         assert "回撤保护" in md
+        assert "交易时段" in md
+        assert "流动性" in md
+
+    def test_execution_context_checks_trading_hours_and_liquidity(self):
+        harness = TradingHarness()
+        synthesis, trader, risk = self._make_inputs()
+        live = {"data_status": "live"}
+        result = harness.run_preflight(
+            synthesis, trader, risk, live, live, live, live,
+            execution_context={
+                "as_of": "2026-08-12T10:00:00+08:00",
+                "latest_volume": 1_000_000,
+                "latest_close": 10.0,
+            },
+        )
+        assert result.final_action == "execute"
+        assert next(c for c in result.checks if c.check_name == "交易时段").passed
+        assert next(c for c in result.checks if c.check_name == "流动性").passed
+
+    def test_missing_liquidity_requires_manual_review(self):
+        harness = TradingHarness()
+        synthesis, trader, risk = self._make_inputs()
+        live = {"data_status": "live"}
+        result = harness.run_preflight(
+            synthesis, trader, risk, live, live, live, live,
+            execution_context={"as_of": "2026-08-12T10:00:00+08:00"},
+        )
+        assert result.final_action == "manual_review"
+        assert not next(c for c in result.checks if c.check_name == "流动性").passed
+
+    def test_outside_trading_hours_requires_manual_review(self):
+        harness = TradingHarness()
+        synthesis, trader, risk = self._make_inputs()
+        live = {"data_status": "live"}
+        result = harness.run_preflight(
+            synthesis, trader, risk, live, live, live, live,
+            execution_context={
+                "as_of": "2026-08-12T20:00:00+08:00",
+                "latest_volume": 1_000_000,
+                "latest_close": 10.0,
+            },
+        )
+        assert result.final_action == "manual_review"
+        assert not next(c for c in result.checks if c.check_name == "交易时段").passed
+
+    def test_live_agent_data_can_execute(self):
+        harness = TradingHarness()
+        synthesis, trader, risk = self._make_inputs()
+        live = {"data_status": "live"}
+        result = harness.run_preflight(
+            synthesis, trader, risk, live, live, live, live,
+        )
+        assert result.final_action == "execute"
+        assert result.data_quality_summary["passed"] is True
+        assert result.data_quality_summary["counts"]["live"] == 4
+
+    def test_offline_agent_data_requires_manual_review(self):
+        harness = TradingHarness()
+        synthesis, trader, risk = self._make_inputs()
+        offline = {"data_status": "offline_sample"}
+        result = harness.run_preflight(
+            synthesis, trader, risk, offline, offline, offline, offline,
+        )
+        assert result.final_action == "manual_review"
+        assert result.data_quality_summary["passed"] is False
+        assert result.data_quality_summary["counts"]["offline_sample"] == 4

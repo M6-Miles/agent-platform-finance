@@ -52,17 +52,20 @@ def get_backend_schema() -> dict[str, list[str]]:
         'fundamental': [
             'symbol', 'name', 'source', 'updated_at',
             'pe_ttm', 'pb', 'total_market_value_cny', 'roe_pct',
-            'valuation_signal', 'valuation_note', 'disclaimer', '_markdown'
+            'valuation_signal', 'valuation_note', 'disclaimer', '_markdown',
+            'data_status', 'fallback_reason', 'field_status',
         ],
         'industry': [
             'symbol', 'industry_name', 'source', 'updated_at',
             'prosperity_signal', 'prosperity_note', 'top_stocks',
-            'fund_flow_3d_cny', 'disclaimer', '_markdown'
+            'fund_flow_3d_cny', 'disclaimer', '_markdown',
+            'data_status', 'fallback_reason',
         ],
         'market_regime': [
             'regime', 'risk_appetite', 'index_code', 'index_close',
             'index_change_pct_5d', 'northbound_flow_cny',
-            'regime_note', 'source', 'updated_at', 'disclaimer', '_markdown'
+            'regime_note', 'source', 'updated_at', 'disclaimer', '_markdown',
+            'data_status', 'fallback_reason',
         ],
     }
 

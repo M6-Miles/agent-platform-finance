@@ -43,9 +43,19 @@ QUOTE_INTENT_KEYWORDS = (
 )
 
 _SYMBOL_PATTERNS = (
-    re.compile(r"\b(\d{6})\b"),
-    re.compile(r"\b([A-Z]{2,}\d{3,})\b"),
+    # 中文字符在 Python 正则中属于 word character，不能用 \b 判断
+    # “000001多少钱”这类常见输入。这里只排除相邻数字，避免截取 7 位以上号码。
+    re.compile(r"(?<!\d)(\d{6})(?!\d)"),
+    re.compile(r"(?<![A-Z0-9])([A-Z]{2,}\d{3,})(?![A-Z0-9])"),
 )
+
+_SECURITY_NAME_ALIASES = {
+    "贵州茅台": "600519",
+    "平安银行": "000001",
+    "万科A": "000002",
+    "招商银行": "600036",
+    "中国平安": "601318",
+}
 
 
 class QuoteToolError(RuntimeError):
@@ -140,7 +150,15 @@ def extract_symbol(message: str) -> str | None:
         match = pattern.search(upper)
         if match:
             return match.group(1)
+    for name, symbol in _SECURITY_NAME_ALIASES.items():
+        if name.upper() in upper:
+            return symbol
     return None
+
+
+def is_sample_symbol(symbol: str) -> bool:
+    value = (symbol or "").strip().upper()
+    return value.startswith("DEMO") or value.startswith("TEST")
 
 
 def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> QuotePayload:
@@ -149,8 +167,17 @@ def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> 
     if not normalized_symbol:
         raise QuoteToolError("缺少证券代码，无法查询报价")
 
+    # 校验证券代码格式
+    if not _is_valid_symbol_format(normalized_symbol):
+        raise QuoteToolError(f"证券代码格式无效：{normalized_symbol}")
+
     mode = normalize_data_mode(data_mode)
-    active = provider if provider is not None else provider_for_mode(mode)
+    effective_mode = "offline" if mode == "auto" and is_sample_symbol(normalized_symbol) else mode
+    active = (
+        provider
+        if provider is not None and effective_mode == mode
+        else provider_for_mode(effective_mode)
+    )
 
     try:
         raw = active.get_realtime_quote(normalized_symbol)
@@ -162,6 +189,14 @@ def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> 
     if not isinstance(raw, dict) or raw.get("price") in (None, ""):
         raise QuoteToolError(f"行情工具返回的数据不含有效价格：{normalized_symbol}")
 
+    # 校验必需字段
+    if not raw.get("symbol"):
+        raise QuoteToolError("行情工具返回的数据缺少 symbol 字段")
+    if not raw.get("source"):
+        raise QuoteToolError("行情工具返回的数据缺少 source 字段")
+    if not raw.get("updated_at"):
+        raise QuoteToolError("行情工具返回的数据缺少 updated_at 字段")
+
     try:
         price = float(raw["price"])
         prev_close = float(raw.get("prev_close") or price)
@@ -172,6 +207,8 @@ def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> 
 
     if price <= 0:
         raise QuoteToolError(f"行情工具返回的价格非正数：{price}")
+    if prev_close <= 0:
+        raise QuoteToolError(f"行情工具返回的昨收价非正数：{prev_close}")
 
     change_pct = raw.get("change_pct")
     if change_pct is None:
@@ -179,7 +216,12 @@ def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> 
 
     data_status = str(raw.get("data_status") or "")
     if not data_status:
-        data_status = STATUS_OFFLINE_SAMPLE if mode == "offline" else STATUS_LIVE
+        data_status = STATUS_OFFLINE_SAMPLE if effective_mode == "offline" else STATUS_LIVE
+
+    # 校验 data_status 有效性
+    valid_statuses = {STATUS_LIVE, STATUS_OFFLINE_SAMPLE, STATUS_FALLBACK, "delayed", "historical", "unavailable"}
+    if data_status not in valid_statuses:
+        raise QuoteToolError(f"行情工具返回的 data_status 无效：{data_status}")
 
     return QuotePayload(
         symbol=str(raw.get("symbol") or normalized_symbol),
@@ -193,3 +235,18 @@ def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> 
         data_status=data_status,
         fallback_reason=raw.get("fallback_reason"),
     )
+
+
+def _is_valid_symbol_format(symbol: str) -> bool:
+    """校验证券代码格式（6位数字或样例代码）。"""
+    if not symbol:
+        return False
+    # A股代码：6位数字
+    if len(symbol) == 6 and symbol.isdigit():
+        return True
+    # 样例代码：DEMO001-999 或 TEST001-999
+    if symbol.startswith(("DEMO", "TEST")):
+        suffix = symbol[4:]
+        if len(suffix) == 3 and suffix.isdigit():
+            return True
+    return False

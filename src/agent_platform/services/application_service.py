@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -17,7 +18,7 @@ from agent_platform.core.harness import (
     RateLimiter,
     SourceAttributionFilter,
 )
-from agent_platform.core.llm_provider import ChatMessage
+from agent_platform.core.llm_provider import ChatMessage, LLMProviderError
 from agent_platform.core.observability import ObservabilityPanel
 from agent_platform.finance.analysis import SecurityAnalysisResult, analyze_security
 from agent_platform.finance.constants import DISCLAIMER
@@ -56,6 +57,17 @@ CHAT_OUTPUT_SCHEMA: dict = {
 
 def _utc_now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
+
+
+_FUNDAMENTAL_INTENT_KEYWORDS = (
+    "基本面", "估值", "市盈率", "市净率", "PE", "PB", "ROE", "DCF",
+    "资产负债率", "财务分析",
+)
+
+
+def _has_fundamental_intent(message: str) -> bool:
+    upper = message.upper()
+    return any(keyword.upper() in upper for keyword in _FUNDAMENTAL_INTENT_KEYWORDS)
 
 
 def _timed_agent(panel: ObservabilityPanel, agent_name: str, fn):
@@ -141,6 +153,8 @@ class DeepResearchResult:
     final_action: str | None           # execute / manual_review / block / None
     errors: list[str]                  # 错误列表
     interrupt_payload: dict | None     # interrupt 时的 payload
+    requested_data_mode: str           # 用户请求的原始模式
+    effective_data_mode: str           # 实际生效的模式
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +171,8 @@ class ChatServiceResult:
 
 
 class ApplicationService:
+    FUNDAMENTAL_CHAT_CACHE_TTL_SECONDS = 300.0
+
     def __init__(
         self,
         settings: Settings | None = None,
@@ -167,6 +183,22 @@ class ApplicationService:
     ) -> None:
         self.settings = settings or get_settings()
         self.store = store or SQLiteStore(self.settings.sqlite_path)
+        from agent_platform.finance.paper_broker_service import PaperBrokerService
+
+        self.paper_broker = PaperBrokerService(self.settings.sqlite_path)
+        self._fundamental_chat_cache: dict[tuple[str, bool], tuple[float, object]] = {}
+        self._fundamental_chat_cache_lock = threading.Lock()
+        self.observability = ObservabilityPanel(self.settings.sqlite_path)
+        from agent_platform.finance.paper_trading_monitor import PaperTradingMonitor
+
+        self.paper_monitor = PaperTradingMonitor(
+            self.settings.sqlite_path,
+            self.paper_broker,
+            poll_interval_s=self.settings.paper_monitor_poll_interval_s,
+            configured_enabled=self.settings.paper_monitor_enabled,
+        )
+        if self.settings.paper_monitor_enabled:
+            self.paper_monitor.start()
         self.market_data_provider = (
             market_data_provider or self.settings.market_data_provider
         ).strip().lower()
@@ -252,6 +284,7 @@ class ApplicationService:
         Windows 下不显式关闭 SQLite 连接会导致数据库文件被占用，
         阻止测试 tmp_path 的清理。
         """
+        self.paper_monitor.stop()
         conn = self._langgraph_checkpoint_conn
         if conn is not None:
             try:
@@ -287,9 +320,11 @@ class ApplicationService:
         """返回原始日线 DataFrame，供 /price-history 端点及图表使用。"""
         return self.market_data.get_price_history(symbol, start=start, end=end)
 
-    def get_realtime_quote(self, symbol: str) -> dict:
+    def get_realtime_quote(self, symbol: str, data_mode: str = "auto") -> dict:
         """获取实时报价（用于模拟盘联网行情按钮）。"""
-        return self.market_data.get_realtime_quote(symbol)
+        from agent_platform.finance.quote_tool import get_latest_quote
+
+        return get_latest_quote(symbol, data_mode=data_mode).to_dict()
 
     def analyze_security(
         self,
@@ -423,6 +458,93 @@ class ApplicationService:
                 data_mode=mode,
             )
 
+        # 明确的基本面请求走确定性 Specialist 快速路径，避免先让 LLM 决定是否
+        # 调工具再等待第二轮。结果仍通过 chat_harness 的完整 Guardrail 生命周期。
+        fundamental_symbol = extract_symbol(normalized_message)
+        if (
+            quote_payload is None
+            and fundamental_symbol is not None
+            and _has_fundamental_intent(normalized_message)
+        ):
+            from agent_platform.finance.fundamental_agent import analyze_fundamental
+
+            t0 = time.perf_counter()
+            force_offline = mode == "offline" or fundamental_symbol.startswith(("DEMO", "TEST"))
+            try:
+                cache_key = (fundamental_symbol, force_offline)
+                now = time.monotonic()
+                with self._fundamental_chat_cache_lock:
+                    cached = self._fundamental_chat_cache.get(cache_key)
+                cache_hit = bool(
+                    cached
+                    and now - cached[0] <= self.FUNDAMENTAL_CHAT_CACHE_TTL_SECONDS
+                )
+                if cache_hit:
+                    fundamental = cached[1]
+                else:
+                    fundamental = analyze_fundamental(
+                        fundamental_symbol, force_offline=force_offline
+                    )
+                    with self._fundamental_chat_cache_lock:
+                        self._fundamental_chat_cache[cache_key] = (
+                            time.monotonic(), fundamental
+                        )
+                tool_invocations.append(
+                    ToolInvocation(
+                        tool_name="analyze_fundamental",
+                        input={
+                            "symbol": fundamental_symbol,
+                            "data_mode": "offline" if force_offline else "auto",
+                        },
+                        output={**fundamental.to_dict(), "cache_hit": cache_hit},
+                        status="success",
+                        duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+                    )
+                )
+                answer = fundamental.to_markdown()
+                payload = {
+                    "answer": answer,
+                    "source": fundamental.source,
+                    "updated_at": fundamental.updated_at,
+                    "provider": "fundamental_agent",
+                }
+                original_agent = self.chat_harness.agent
+                self.chat_harness.agent = lambda _task: payload
+                trace_before = len(self.chat_harness.traces)
+                try:
+                    checked = self.chat_harness.run(normalized_message)
+                finally:
+                    self.chat_harness.agent = original_agent
+                answer = str(checked["answer"])
+                self.store.add_message(session_id, "user", normalized_message)
+                self.store.add_message(
+                    session_id, "assistant", answer, provider="fundamental_agent"
+                )
+                return ChatServiceResult(
+                    session_id=session_id,
+                    answer=answer,
+                    provider="fundamental_agent",
+                    run=AgentRunResult(
+                        answer=answer, steps=(), provider="fundamental_agent"
+                    ),
+                    guardrail_violations=self._latest_violations(trace_before),
+                    tool_invocations=tuple(tool_invocations),
+                    data_mode=mode,
+                )
+            except (GuardrailViolation, CircuitBreakerOpen):
+                raise
+            except Exception as exc:
+                tool_invocations.append(
+                    ToolInvocation(
+                        tool_name="analyze_fundamental",
+                        input={"symbol": fundamental_symbol, "data_mode": mode},
+                        output=None,
+                        status="error",
+                        error=str(exc),
+                        duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+                    )
+                )
+
         # 工具成功：把确定性事实块注入 prompt，模型只能引用这些数字。
         if quote_payload is not None:
             runtime_message = (
@@ -494,6 +616,21 @@ class ApplicationService:
 
         try:
             payload = self.chat_harness.run(runtime_message)
+        except LLMProviderError as exc:
+            answer = (
+                f"大模型服务暂时不可用（{exc.error_type}）。请检查服务配置或稍后重试。\n\n"
+                f"> ⚠️ {DISCLAIMER}"
+            )
+            self.store.add_message(session_id, "assistant", answer, provider="provider_error")
+            return ChatServiceResult(
+                session_id=session_id,
+                answer=answer,
+                provider="provider_error",
+                run=AgentRunResult(answer=answer, steps=(), provider="provider_error"),
+                guardrail_violations=(exc.error_type,),
+                tool_invocations=tuple(tool_invocations),
+                data_mode=mode,
+            )
         except CircuitBreakerOpen as exc:
             answer = (
                 f"🔌 服务已熔断：{exc}\n\n"
@@ -602,7 +739,7 @@ class ApplicationService:
         from agent_platform.finance.securities_graph import run_securities_analysis
 
         sym = symbol.strip()
-        panel = obs_panel or ObservabilityPanel()
+        panel = obs_panel or self.observability
         run_id = uuid.uuid4().hex[:12]
         thread_id = uuid.uuid4().hex[:16]
         t_start = time.perf_counter()
@@ -616,7 +753,7 @@ class ApplicationService:
             thread_id=thread_id,
             data_mode=data_mode,
         )
-        duration = time.perf_counter() - t_start
+        duration = float(state.get("duration_s") or (time.perf_counter() - t_start))
 
         # ── 查询真实 interrupt 状态（不依赖 state 字段推测）────────────────
         # LangGraph invoke 遇到 interrupt() 后返回当前状态，不抛异常。
@@ -731,6 +868,8 @@ class ApplicationService:
             final_action=state.get("final_action"),
             errors=list(state.get("errors") or []),
             interrupt_payload=interrupt_payload,
+            requested_data_mode=state.get("requested_data_mode", data_mode),
+            effective_data_mode=state.get("data_mode", data_mode),
         )
 
     @staticmethod

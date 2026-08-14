@@ -5,23 +5,25 @@
   "name": "天气分析工作流（非金融领域可移植性验证）",
   "version": "1.0.0",
   "engine": "harness_sequence",
-  "description": "examples/weather_analysis 的机器可读镜像。该 Demo 不使用 LangGraph，而是 Harness Guardrail 顺序管道：领域计算产出 dict 后，依次通过与金融 Agent 完全相同的三个 Guardrail，最后落成 frozen dataclass。它证明平台的 Guardrail 层与金融领域零耦合——换领域只需换 Schema 与领域计算，Guardrail 机制改动 0 行。",
+  "description": "agent_platform.weather 的机器可读镜像。该 Demo 不使用 LangGraph，而是 Harness Guardrail 顺序管道：领域计算产出 dict 后，依次通过与金融 Agent 完全相同的三个 Guardrail，最后落成 frozen dataclass。它证明平台的 Guardrail 层与金融领域零耦合——换领域只需换 Schema 与领域计算，Guardrail 机制改动 0 行。",
   "implementation": {
-    "module": "weather_agent",
+    "module": "agent_platform.weather.agent",
     "entrypoint": "WeatherAnalysisAgent.analyze",
-    "notes": "该模块位于 examples/weather_analysis/，非 src 包内，导入前需把该目录加入 sys.path（见 tests/test_p05_weather_demo.py 的做法）。"
+    "notes": "正式实现位于 src/agent_platform/weather；examples/weather_analysis 仅保留可运行示例与兼容导出。"
   },
   "parameters": [
     {
       "name": "min_data_points",
       "value": 2,
       "description": "气温序列最少数据点数，不足时抛 ValueError 而非返回残缺结果。",
-      "verified_by": "tests/test_p05_weather_demo.py::TestEdgeCases::test_raises_on_single_temp"
+      "source_ref": "agent_platform.weather.agent:MIN_DATA_POINTS",
+      "verified_by": "tests/test_p05_weather_demo.py::TestWeatherEndpoint::test_weather_analyze_insufficient_data_points"
     },
     {
       "name": "trend_threshold_c",
       "value": 1.0,
       "description": "后半段均温减前半段均温的绝对值超过该阈值才判为升温/降温，否则判为平稳。",
+      "source_ref": "agent_platform.weather.agent:TREND_THRESHOLD_C",
       "verified_by": "tests/test_workflow_definitions.py::TestWeatherWorkflowMatchesCode::test_trend_threshold_matches_behaviour（用跨阈值样本反推）"
     }
   ],
@@ -30,7 +32,7 @@
       "id": "validate_input",
       "title": "输入校验",
       "type": "compute",
-      "implementation": "weather_agent:WeatherAnalysisAgent.analyze",
+      "implementation": "agent_platform.weather.agent:WeatherAnalysisAgent.analyze",
       "description": "校验气温序列长度 ≥ 2，不足则抛 ValueError。拒绝在数据不足时产出任何结论。",
       "requires": ["city", "temps"],
       "produces": [],
@@ -40,7 +42,7 @@
       "id": "compute_statistics",
       "title": "统计量计算",
       "type": "compute",
-      "implementation": "weather_agent:WeatherAnalysisAgent.analyze",
+      "implementation": "agent_platform.weather.agent:WeatherAnalysisAgent.analyze",
       "description": "用 statistics 标准库计算均温、最高温、最低温、温差与标准差（波动率），全部为确定性代码计算，不经 LLM。",
       "requires": ["temps"],
       "produces": ["avg_temp_c", "max_temp_c", "min_temp_c", "temp_range_c", "volatility_c"],
@@ -50,7 +52,7 @@
       "id": "classify_trend",
       "title": "趋势判定",
       "type": "compute",
-      "implementation": "weather_agent:WeatherAnalysisAgent.analyze",
+      "implementation": "agent_platform.weather.agent:WeatherAnalysisAgent.analyze",
       "description": "以序列中点切分，后半段均值减前半段均值，差值超过 ±1.0°C 判为 warming/cooling，否则 stable。",
       "requires": ["temps"],
       "produces": ["trend"],
@@ -60,7 +62,7 @@
       "id": "compose_report",
       "title": "报告组装",
       "type": "compute",
-      "implementation": "weather_agent:WeatherAnalysisAgent.analyze",
+      "implementation": "agent_platform.weather.agent:WeatherAnalysisAgent.analyze",
       "description": "组装中文摘要，并补齐 source / updated_at / disclaimer 三个溯源与免责字段。",
       "requires": ["city", "avg_temp_c", "max_temp_c", "min_temp_c", "temp_range_c", "trend", "volatility_c"],
       "produces": ["summary", "source", "updated_at", "disclaimer"],
@@ -103,7 +105,7 @@
       "id": "emit_report",
       "title": "产出报告",
       "type": "marker",
-      "implementation": "weather_agent:WeatherReport",
+      "implementation": "agent_platform.weather.agent:WeatherReport",
       "description": "全部 Guardrail 通过后，把校验过的 dict 落成 frozen dataclass WeatherReport 返回。",
       "requires": [],
       "produces": [],

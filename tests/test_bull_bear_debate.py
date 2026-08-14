@@ -621,6 +621,19 @@ class TestOfflineEndToEnd:
         for e in bull + bear:
             assert e.data_status != "live"
 
+    def test_graph_offline_technical_evidence_never_claims_live(self, no_network):
+        """LangGraph 使用离线 MCP Provider 时，技术证据也必须保留离线状态。"""
+        from agent_platform.finance.analysis import analyze_security
+        from agent_platform.finance.mcp_market_data_provider import MCPMarketDataProvider
+
+        tech = analyze_security(
+            "DEMO001", provider=MCPMarketDataProvider(offline=True),
+        ).to_dict()
+        assert tech["data_status"] == "offline_sample"
+        bull, bear = extract_evidence(tech, {}, {}, {})
+        assert bull or bear
+        assert all(e.data_status == "offline_sample" for e in bull + bear)
+
 
 # ═══════════════════════════════════════════════════════════════
 #   11. 主链确实启用了辩论

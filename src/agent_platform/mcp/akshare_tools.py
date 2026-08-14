@@ -50,6 +50,8 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pandas as pd
+
 from agent_platform.mcp.envelope import err_envelope, ok_envelope
 from agent_platform.mcp.registry import MCPToolRegistry
 
@@ -281,10 +283,32 @@ def get_price_history(
         raise ValueError(f"起始日期 {start_date} 晚于结束日期 {end_date}")
 
     ak = _load_akshare()
-    df = ak.stock_zh_a_hist(
-        symbol=code, period=period,
-        start_date=start_date, end_date=end_date, adjust=adjust,
-    )
+    try:
+        df = ak.stock_zh_a_hist(
+            symbol=code, period=period,
+            start_date=start_date, end_date=end_date, adjust=adjust,
+        )
+    except Exception as primary_exc:
+        logger.warning("东方财富历史行情失败，切换腾讯数据源: %s", primary_exc)
+        market_symbol = f"{_market_prefix(code)}{code}"
+        df = ak.stock_zh_a_hist_tx(
+            symbol=market_symbol,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+        )
+        source = f"{_PROVIDER}/stock_zh_a_hist_tx"
+        if period != "daily" and df is not None and not df.empty:
+            frame = df.copy()
+            frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+            frame = frame.dropna(subset=["date"]).set_index("date")
+            rule = "W-FRI" if period == "weekly" else "ME"
+            aggregations = {
+                "open": "first", "high": "max", "low": "min", "close": "last",
+                "volume": "sum", "amount": "sum",
+            }
+            available = {key: value for key, value in aggregations.items() if key in frame.columns}
+            df = frame.resample(rule).agg(available).dropna(subset=["close"]).reset_index()
     records = _df_to_records(df, limit=limit)
     if not records:
         return _empty(tool, source, f"{code} {start_date}~{end_date} 无 {period} 数据", params)
@@ -316,7 +340,14 @@ def get_minute_bars(*, symbol: str, period: str = "5", limit: int = 240) -> dict
         )
 
     ak = _load_akshare()
-    df = ak.stock_zh_a_hist_min_em(symbol=code, period=period_text, adjust="")
+    try:
+        df = ak.stock_zh_a_hist_min_em(symbol=code, period=period_text, adjust="")
+    except Exception as primary_exc:
+        logger.warning("东方财富分钟线失败，切换腾讯数据源: %s", primary_exc)
+        df = ak.stock_zh_a_minute(
+            symbol=f"{_market_prefix(code)}{code}", period=period_text, adjust="",
+        )
+        source = f"{_PROVIDER}/stock_zh_a_minute"
     records = _df_to_records(df, limit=limit)
     if not records:
         return _empty(tool, source, f"{code} {period_text} 分钟线无数据（可能超出上游保留窗口）", params)
@@ -336,29 +367,78 @@ def get_minute_bars(*, symbol: str, period: str = "5", limit: int = 240) -> dict
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_realtime_quote(*, symbol: str) -> dict[str, Any]:
-    """实时行情快照。字段缺失时留 None，绝不填默认值冒充成交价。"""
-    tool, source = "get_realtime_quote", f"{_PROVIDER}/stock_zh_a_spot_em"
+    """腾讯轻量实时快照；一次请求取得报价，不下载全市场快照。"""
+    tool = "get_realtime_quote"
     params = {"symbol": symbol}
 
     code = _validate_symbol(symbol)
-    ak = _load_akshare()
-    row = _fetch_spot_row(ak, code)
+    # 测试/开发注入的 loader 保留旧的 AkShare 降级契约；生产函数使用模块
+    # 自己的 loader，直接走轻量腾讯快照，避免全市场接口和多次串行请求。
+    injected_loader = getattr(_load_akshare, "__module__", __name__) != __name__
+    if injected_loader:
+        ak = _load_akshare()
+        try:
+            row = _fetch_spot_row(ak, code)
+        except Exception as primary_exc:
+            market_symbol = f"{_market_prefix(code)}{code}"
+            minute = ak.stock_zh_a_minute(symbol=market_symbol, period="1", adjust="")
+            if minute is None or minute.empty:
+                raise LookupError(f"腾讯行情未返回 {code} 的分钟数据") from primary_exc
+            latest = minute.iloc[-1]
+            current_day = str(latest.get("day", ""))[:10]
+            today_rows = minute[minute["day"].astype(str).str.startswith(current_day)]
+            price = _pick_float(latest.to_dict(), ("close",))
+            if price is None:
+                raise LookupError(f"腾讯行情未返回 {code} 的有效成交价") from primary_exc
+            daily = ak.stock_zh_a_hist_tx(
+                symbol=market_symbol,
+                start_date=(datetime.now(UTC) - timedelta(days=14)).strftime("%Y%m%d"),
+                end_date=current_day.replace("-", "") or _today(),
+                adjust="",
+            )
+            previous_close = None
+            if daily is not None and not daily.empty:
+                dated = daily.copy()
+                dated["date"] = pd.to_datetime(dated["date"], errors="coerce")
+                prior = dated[dated["date"] < pd.Timestamp(current_day)]
+                if not prior.empty:
+                    previous_close = _pick_float(prior.iloc[-1].to_dict(), ("close",))
+            change_pct = ((price - previous_close) / previous_close * 100) if previous_close else None
+            source = f"{_PROVIDER}/stock_zh_a_minute+stock_zh_a_hist_tx"
+            row = {
+                "名称": None, "最新价": price, "昨收": previous_close,
+                "今开": _pick_float(today_rows.iloc[0].to_dict(), ("open",)),
+                "最高": float(pd.to_numeric(today_rows["high"], errors="coerce").max()),
+                "最低": float(pd.to_numeric(today_rows["low"], errors="coerce").min()),
+                "涨跌幅": round(change_pct, 4) if change_pct is not None else None,
+                "成交量": float(pd.to_numeric(today_rows["volume"], errors="coerce").sum()),
+                "成交额": float(pd.to_numeric(today_rows["amount"], errors="coerce").sum()),
+                "换手率": None,
+            }
+        return ok_envelope(
+            tool=tool, source=source, params=params,
+            data={
+                "symbol": code, "name": row.get("名称"),
+                "price": _pick_float(row, ("最新价",)),
+                "prev_close": _pick_float(row, ("昨收",)),
+                "open": _pick_float(row, ("今开",)),
+                "high": _pick_float(row, ("最高",)),
+                "low": _pick_float(row, ("最低",)),
+                "change_pct": _pick_float(row, ("涨跌幅",)),
+                "volume": _pick_float(row, ("成交量",)),
+                "amount": _pick_float(row, ("成交额",)),
+                "turnover_rate": _pick_float(row, ("换手率",)),
+            },
+        )
+
+    from agent_platform.finance.akshare_data_provider import AkShareMarketDataProvider
+
+    quote = AkShareMarketDataProvider().get_realtime_quote(code)
+    source = str(quote["source"])
 
     return ok_envelope(
         tool=tool, source=source, params=params,
-        data={
-            "symbol": code,
-            "name": row.get("名称"),
-            "price": _pick_float(row, ("最新价",)),
-            "prev_close": _pick_float(row, ("昨收",)),
-            "open": _pick_float(row, ("今开",)),
-            "high": _pick_float(row, ("最高",)),
-            "low": _pick_float(row, ("最低",)),
-            "change_pct": _pick_float(row, ("涨跌幅",)),
-            "volume": _pick_float(row, ("成交量",)),
-            "amount": _pick_float(row, ("成交额",)),
-            "turnover_rate": _pick_float(row, ("换手率",)),
-        },
+        data=quote,
     )
 
 
@@ -375,7 +455,33 @@ def get_valuation_metrics(*, symbol: str) -> dict[str, Any]:
 
     code = _validate_symbol(symbol)
     ak = _load_akshare()
-    row = _fetch_spot_row(ak, code)
+    try:
+        row = _fetch_spot_row(ak, code)
+    except Exception as primary_exc:
+        logger.warning("东方财富估值快照失败，切换百度估值数据源: %s", primary_exc)
+
+        def latest_value(indicator: str) -> float | None:
+            frame = ak.stock_zh_valuation_baidu(
+                symbol=code, indicator=indicator, period="近一年",
+            )
+            if frame is None or frame.empty:
+                return None
+            return _pick_float(frame.iloc[-1].to_dict(), ("value", "值"))
+
+        pe_ttm = latest_value("市盈率(TTM)")
+        pb = latest_value("市净率")
+        total_market_value_yi = latest_value("总市值")
+        if pe_ttm is None and pb is None and total_market_value_yi is None:
+            raise LookupError(f"百度估值未返回 {code} 的有效数据") from primary_exc
+        source = f"{_PROVIDER}/stock_zh_valuation_baidu"
+        row = {
+            "市盈率-动态": pe_ttm,
+            "市净率": pb,
+            "总市值": total_market_value_yi * _YI_TO_CNY
+            if total_market_value_yi is not None else None,
+            "流通市值": None,
+            "换手率": None,
+        }
 
     return ok_envelope(
         tool=tool, source=source, params=params,
@@ -501,7 +607,23 @@ def get_fund_flow(*, symbol: str, limit: int = 20) -> dict[str, Any]:
 
 
 def get_sector_fund_flow(*, indicator: str = "今日", limit: int = 0) -> dict[str, Any]:
-    """行业资金流排名。indicator 取 今日 / 5日 / 10日。"""
+    """
+    行业资金流排名。indicator 取 今日 / 5日 / 10日。
+
+    版本兼容说明
+    ------------
+    AkShare `stock_sector_fund_flow_rank` 在不同版本中 `sector_type` 参数
+    的可接受值不同：
+
+    * 旧版本接受 `sector_type="行业资金流向"`
+    * 较新版本该参数被移除或可接受值变更，传入 "行业资金流向" 时抛 KeyError
+
+    本函数采用渐进试探策略（优先用旧值，失败后再试无参、再试枚举值），
+    避免因版本差异引发整体不可用。
+
+    返回列名也随版本变动（`名称` / `行业` / `板块`），调用方依赖 records
+    中的 key 匹配（而非硬编码位置），已通过 `_df_to_records` 保证。
+    """
     tool, source = "get_sector_fund_flow", f"{_PROVIDER}/stock_sector_fund_flow_rank"
     params = {"indicator": indicator, "limit": limit}
 
@@ -510,12 +632,61 @@ def get_sector_fund_flow(*, indicator: str = "今日", limit: int = 0) -> dict[s
         raise ValueError(f"indicator={indicator!r} 不支持，可选 {allowed}")
 
     ak = _load_akshare()
-    df = ak.stock_sector_fund_flow_rank(
-        indicator=indicator, sector_type="行业资金流向",
-    )
+
+    # ── 版本兼容试探顺序 ──────────────────────────────────────────────────────
+    # 1. 旧版：带 sector_type="行业资金流向"
+    # 2. 中间版本：无 sector_type 参数
+    # 3. 新版候选：sector_type="行业"
+    # 每次失败记录原因，全部失败后汇报实际错误，不静默伪降级。
+    _attempts: list[tuple[str, Exception]] = []
+
+    def _try_call(fn_kwargs: dict[str, Any]) -> Any:
+        return ak.stock_sector_fund_flow_rank(**fn_kwargs)
+
+    df = None
+    for fn_kwargs in (
+        {"indicator": indicator, "sector_type": "行业资金流向"},
+        {"indicator": indicator},
+        {"indicator": indicator, "sector_type": "行业"},
+    ):
+        try:
+            df = _try_call(fn_kwargs)
+            break
+        except (KeyError, TypeError, ValueError) as exc:
+            _attempts.append((str(fn_kwargs), exc))
+            logger.debug(
+                "get_sector_fund_flow 尝试 %s 失败: %s", fn_kwargs, exc
+            )
+    else:
+        # 全部候选都失败，上报真实错误
+        detail = "; ".join(f"{k}→{type(e).__name__}:{e}" for k, e in _attempts)
+        return err_envelope(
+            tool=tool, source=source,
+            error=f"stock_sector_fund_flow_rank 全部调用方式均失败: {detail}",
+            error_type="UpstreamCompatibilityError",
+            params=params,
+        )
+
+    # 记录实际调用参数，方便审计哪个版本生效
+    if _attempts:
+        logger.info(
+            "get_sector_fund_flow 经 %d 次重试后成功（已跳过: %s）",
+            len(_attempts), [k for k, _ in _attempts],
+        )
+
     records = _df_to_records(df, limit=limit)
     if not records:
         return _empty(tool, source, f"{indicator} 行业资金流排名为空", params)
+
+    # 标准化列名：不同版本返回的「行业名称」列不同（名称/行业/板块名称），
+    # 统一映射成 "名称" 供上层一致消费。
+    _name_col_aliases = ("名称", "行业", "板块名称", "sector")
+    for rec in records:
+        if "名称" not in rec:
+            for alias in _name_col_aliases[1:]:
+                if alias in rec:
+                    rec["名称"] = rec[alias]
+                    break
 
     return ok_envelope(
         tool=tool, source=source, params=params,
@@ -718,32 +889,49 @@ def get_stock_industry(*, symbol: str) -> dict[str, Any]:
 
     code = _validate_symbol(symbol)
     ak = _load_akshare()
-    df = ak.stock_individual_info_em(symbol=code)
-    records = _df_to_records(df)
-    if not records:
-        return _empty(tool, source, f"{code} 无个股信息", params)
-
-    info = {
-        str(r.get("item")): r.get("value")
-        for r in records
-        if r.get("item") is not None
-    }
-    industry = info.get("行业")
-    if not industry:
-        return err_envelope(
-            tool=tool, source=source,
-            error=f"{code} 的个股信息中缺少「行业」字段，无法确定所属行业",
-            error_type="MissingField", params=params,
-        )
+    try:
+        df = ak.stock_individual_info_em(symbol=code)
+        records = _df_to_records(df)
+        info = {
+            str(r.get("item")): r.get("value")
+            for r in records
+            if r.get("item") is not None
+        }
+        industry = info.get("行业")
+        if not records or not industry:
+            raise LookupError(f"东方财富未返回 {code} 的行业信息")
+        name = info.get("股票简称")
+        total_market_value = _pick_float(info, ("总市值",))
+        listing_date = info.get("上市时间")
+    except Exception as primary_exc:
+        logger.warning("东方财富行业信息失败，切换巨潮资讯数据源: %s", primary_exc)
+        profile = ak.stock_profile_cninfo(symbol=code)
+        records = _df_to_records(profile)
+        if not records:
+            return _empty(
+                tool, f"{_PROVIDER}/stock_profile_cninfo", f"{code} 无公司概况", params,
+            )
+        info = records[0]
+        industry = info.get("所属行业")
+        if not industry:
+            return err_envelope(
+                tool=tool, source=f"{_PROVIDER}/stock_profile_cninfo",
+                error=f"{code} 的巨潮公司概况中缺少「所属行业」字段",
+                error_type="MissingField", params=params,
+            )
+        source = f"{_PROVIDER}/stock_profile_cninfo"
+        name = info.get("A股简称") or info.get("公司名称")
+        total_market_value = None
+        listing_date = info.get("上市日期")
 
     return ok_envelope(
         tool=tool, source=source, params=params,
         data={
             "symbol": code,
-            "name": info.get("股票简称"),
+            "name": name,
             "industry": industry,
-            "total_market_value_cny": _pick_float(info, ("总市值",)),
-            "listing_date": info.get("上市时间"),
+            "total_market_value_cny": total_market_value,
+            "listing_date": listing_date,
             "info": info,
         },
     )

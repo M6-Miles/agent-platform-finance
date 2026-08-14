@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import math
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 
@@ -161,7 +162,7 @@ def compare_symbols(
     outcomes: dict[str, FetchOutcome] = {}
     failed: dict[str, str] = {}
 
-    for symbol in unique_symbols:
+    def fetch_one(symbol: str) -> tuple[str, FetchOutcome | None, pd.DataFrame | None, str | None]:
         try:
             outcome = fetcher(
                 symbol,
@@ -173,10 +174,24 @@ def compare_symbols(
             if in_window.empty:
                 raise ComparisonError(f"{symbol} 在请求区间内没有交易数据")
             assert_dates_in_window(in_window["date"], window, label=f"{symbol} 行情")
-            frames[symbol] = in_window
-            outcomes[symbol] = outcome
+            return symbol, outcome, in_window, None
         except Exception as exc:  # noqa: BLE001 - 单标的失败必须隔离
-            failed[symbol] = f"{type(exc).__name__}: {exc}"
+            return symbol, None, None, f"{type(exc).__name__}: {exc}"
+
+    # 各标的行情相互独立。限制并发数，避免对公共数据源形成突发压力；
+    # executor.map 保持输入顺序，后续表格和图例仍与用户输入一致。
+    with ThreadPoolExecutor(
+        max_workers=min(5, len(unique_symbols)), thread_name_prefix="comparison-fetch",
+    ) as executor:
+        fetched = list(executor.map(fetch_one, unique_symbols))
+
+    for symbol, outcome, frame, error in fetched:
+        if error is not None:
+            failed[symbol] = error
+        else:
+            assert outcome is not None and frame is not None
+            frames[symbol] = frame
+            outcomes[symbol] = outcome
 
     if len(frames) < 2:
         detail = "；".join(f"{k} → {v}" for k, v in failed.items()) or "无可用标的"

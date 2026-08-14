@@ -239,7 +239,7 @@ def build_default_registry(*, offline: bool = False) -> MCPToolRegistry:
 
     延迟 import 工具模块，避免 registry 与 tools 之间的循环依赖。
     """
-    from agent_platform.mcp import akshare_tools, offline_tools, tushare_tools
+    from agent_platform.mcp import akshare_tools, info_tools, offline_tools, tushare_tools
 
     reg = MCPToolRegistry(offline=offline)
     akshare_tools.register_all(reg)
@@ -247,6 +247,9 @@ def build_default_registry(*, offline: bool = False) -> MCPToolRegistry:
     # 离线样例工具也必须注册：否则 offline 模式会绕开 MCP 直读样例字典，
     # MCP 层就退化成"只在联网时生效"的装饰层（见 offline_tools 模块说明）。
     offline_tools.register_all(reg)
+    # 信息工具：财经新闻 / 公司公告 / 研报摘要 / 政策宏观 / 利率
+    # 全部 requires_network=True，离线模式由注册表硬阻断，函数体不执行。
+    info_tools.register_all(reg)
     return reg
 
 

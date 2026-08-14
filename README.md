@@ -38,7 +38,7 @@
 - 连续对话上下文（Agent 加载历史消息）
 
 ### 测试覆盖
-- **358 项单元测试**，覆盖核心模块（数据库、Agent、指标、API、数据提供、组合分析、报告导出、Mock LLM、工具注册、Harness Guardrail、Graph 引擎、专业 Agent、回测、Evaluator、MockBroker、P-05 非金融 Demo）
+- **1604 项测试收集，1603 项通过、1 项跳过、0 失败**（2026-08-14 实测），覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、真实 LLM 回放框架与天气 Demo。
 
 ## 2. 项目不会做什么
 
@@ -117,7 +117,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ```bash
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,ui]"
 ```
 
 正常情况下会安装 FastAPI、Streamlit、pandas、pytest 等依赖。
@@ -165,7 +165,7 @@ TUSHARE_TOKEN=你的Token python Scripts/validate_deliverables.py --online --tus
 **一次安装所有可选依赖：**
 
 ```bash
-python -m pip install -e ".[akshare,tushare,llm]"
+python -m pip install -e ".[akshare,tushare,llm,ui]"
 ```
 
 **注意**：
@@ -241,7 +241,7 @@ data/app.sqlite3
 # 标准离线测试（默认；无需网络）
 python -m pytest -q -p no:cacheprovider
 
-# 仅运行 LangGraph 工作流测试（14 项）
+# 仅运行 LangGraph 工作流测试
 python -m pytest -q -p no:cacheprovider tests/test_langgraph_workflow.py
 
 # 排除慢速测试
@@ -251,7 +251,7 @@ python -m pytest -q -m "not slow"
 正常情况下应看到全部通过：
 
 ```text
-1220 passed, 1 skipped, 1 warning
+1603 passed, 1 skipped, 0 failed（1604 collected）
 ```
 
 > 该 warning 来自 `fastapi/testclient.py` 的 `StarletteDeprecationWarning`（第三方库，
@@ -268,7 +268,7 @@ python -m pytest -q -m "online"
 
 - 已经进入项目根目录。
 - 虚拟环境已经激活。
-- 已经执行 `python -m pip install -e ".[dev]"`。
+- 已经执行 `python -m pip install -e ".[dev,ui]"`。
 
 ### 8.1 离线 / 在线交付物验证
 
@@ -379,7 +379,7 @@ curl -X POST "http://127.0.0.1:8000/chat" \
 请确认虚拟环境已激活，并重新安装依赖：
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,ui]"
 ```
 
 ### 13.3 端口被占用
@@ -553,28 +553,44 @@ result = resume_securities_analysis("approve", thread_id="my-analysis-001", grap
 | 大盘宏观 | `market_regime_agent.py` | Market Regime（bull/bear/consolidation） |
 | 综合研判 | `synthesis_agent.py` | Bull/Bear 辩论 + 置信度（0.0–1.0）+ 买卖信号 |
 | 交易员 | `trader_agent.py` | 目标价 + 仓位建议（≤10%，>10% 需人工审批） |
-| 风控 | `risk_manager_agent.py` | 单仓≤2%、行业集中≤30%、回撤>15% 强制减仓 |
+| 风控 | `risk_manager_agent.py` | 止损触发时单笔账户亏损≤2%、行业集中≤30%、回撤>15% 强制减仓 |
 
 ### 15.4 Pre-Flight Checklist（交易前门卫）
 
-`src/agent_platform/finance/trading_harness.py` 实现 6 项前置检查：
+`src/agent_platform/finance/trading_harness.py` 实现 9 项前置检查：
 
-1. 数据溯源（source / updated_at 完整性）
-2. 违禁词拦截
-3. 仓位合规（approved ≤ suggested）
-4. Schema 有效性
-5. 置信度阈值（默认 ≥ 0.55）
-6. 回撤保护（final_signal ≠ "reduce"）
+1. 数据质量决策（真实、离线、降级和不可用状态）
+2. 数据溯源（source / updated_at 完整性）
+3. 违禁词拦截
+4. 仓位合规（suggested ≤ approved，即建议仓位不超过风控批准上限）
+5. Schema 有效性
+6. 置信度阈值（默认 ≥ 0.5）
+7. 回撤保护（final_signal ≠ "reduce"）
+8. A 股交易时段（Asia/Shanghai 工作日 09:30-11:30、13:00-15:00）
+9. 流动性（最新成交量 × 收盘价的日成交额代理值，缺失时进入人工复核）
 
 ### 15.5 工程层（Phase 4）
 
 | 组件 | 文件 | 说明 |
 |------|------|------|
 | 回测引擎 | `finance/backtesting.py` | Sharpe / 最大回撤 / 胜率 / 滑点 0.1% + 佣金 0.03% |
-| 可观测面板 | `core/observability.py` | Token 消耗 / 延迟 P50/P95 / Guardrail 触发率 |
+| 可观测面板 | `core/observability.py` | SQLite 持久化；真实供应商 Token usage / 延迟 P50/P95 / Guardrail 触发率；`GET /observability` |
 | Evaluator Agent | `core/evaluator_agent.py` | 数据完整性 + 逻辑一致性 + 违禁词 三维评分 0–100 |
 | MockBroker | `finance/mock_broker.py` | 本地纸面交易：限价单 / 市价单 / 撮合 / 持仓盈亏 |
-| 幻觉率实验 | `core/harness_experiment.py` | Harness ON vs OFF 对比：幻觉拦截率 100%，误拦截率 0% |
+| 长期模拟盘监控 | `finance/paper_trading_monitor.py` | 每日采集、SQLite 快照、跨重启恢复、同日幂等；不连接真实券商 |
+| 幻觉率实验 | `core/harness_experiment.py` | 固定 Mock 评测集 Harness ON/OFF 对比；不得解释为真实 LLM 提升比例 |
+
+长期模拟盘监控默认关闭，避免启动开发服务后自动访问公网。创建任务后，显式设置以下环境变量并重启服务即可自动按日执行：
+
+```dotenv
+PAPER_MONITOR_ENABLED=true
+PAPER_MONITOR_POLL_INTERVAL_S=30
+```
+
+相关接口：`POST /paper-trading/monitor/jobs`、`GET /paper-trading/monitor/jobs`、
+`POST /paper-trading/monitor/jobs/{job_id}/run`、
+`GET /paper-trading/monitor/jobs/{job_id}/runs`。同一任务同一自然日只保留一条运行记录。
+代码和离线测试只能证明调度、持久化与恢复能力；“真实运行满 1～2 周”必须由自然时间积累，不能用历史快速回放代替。
 
 ### 15.6 快速运行回测
 
@@ -638,29 +654,30 @@ python examples/weather_analysis/run_demo.py
 | 领域计算 | MA/RSI/MACD 等 | 均温/温差/趋势 | 新建 |
 | AgentHarness 框架 | 不变 | 不变 | **0 行** |
 
-接入新领域所需工作 ≤ 2 天。25 项专项测试：`tests/test_p05_weather_demo.py`
+接入新领域所需工作 ≤ 2 天。天气专项测试位于 `tests/test_p05_weather_demo.py`。
 
 ### 15.9 HTML 前端原型（frontend_prototype.html）
 
-`frontend_prototype.html` 是一个**零依赖的单文件前端原型**，用 Tailwind CDN 实现，
-不需要 Node / npm / 构建步骤，直接双击或用浏览器打开即可。它与 Streamlit 页面功能对应，
-包含 7 个视图：证券分析 / 多股对比 / Agent 对话 / 深度投研 / 策略回测 / 模拟盘 / 可观测性。
+`frontend_prototype.html` 是主前端，由 FastAPI 在根路径提供。它用 Tailwind CDN 实现，
+不需要 Node / npm / 构建步骤，包含 8 个视图：证券分析 / 多股对比 / Agent 对话 /
+深度投研 / 策略回测 / 模拟盘 / 可观测性 / 天气分析。业务功能必须通过 FastAPI 使用，
+不建议直接双击 HTML 文件。
 
 两种数据模式（侧边栏切换）：
 
 | 模式 | 说明 | 是否需要后端 |
 |------|------|-------------|
-| 内置样例（离线） | 使用页面内置的演示数据，零配置 | 否 |
+| 内置样例（离线） | 调用后端的确定性样例数据 | **是** |
 | AkShare A股（联网） | 调用本地 FastAPI，取真实 A 股行情 | **是** |
 
 选「AkShare A股（联网）」时需先启动后端，且端口必须与页面中的 `API_BASE` 一致
-（默认 `http://localhost:8002`）：
+（默认 `http://127.0.0.1:8003`）：
 
 ```bash
-.venv\Scripts\python.exe -m uvicorn src.agent_platform.api.main:app --host 127.0.0.1 --port 8002
+.venv\Scripts\python.exe -m uvicorn agent_platform.api.main:app --host 127.0.0.1 --port 8003
 ```
 
-后端不可达时页面不报错，而是回退到内置演示数据并给出黄色提示。
+后端不可达或联网数据获取失败时，页面会明确报错；系统不会把样例数据冒充联网结果。
 
 > 已知限制：请勿加 `--reload`。`--reload` 下 uvicorn 用 `sys.executable` spawn worker
 > 进程，在部分 Windows 环境会解析到系统 Python 而非 `.venv`，导致 `/quote/{symbol}`

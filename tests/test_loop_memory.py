@@ -7,6 +7,8 @@ Loop 记忆层测试
 """
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from agent_platform.core.loop_memory import (
@@ -14,6 +16,7 @@ from agent_platform.core.loop_memory import (
     LoopMemory,
     MemoryKind,
     MemoryRecord,
+    MemoryScope,
     SQLiteLoopMemory,
 )
 
@@ -98,6 +101,26 @@ class TestValidation:
             store.append("s", 1, "nope", "x")
         assert "plan" in str(exc.value)
         assert "reflection" in str(exc.value)
+
+    def test_unknown_scope_rejected(self, store: LoopMemory) -> None:
+        with pytest.raises(ValueError, match="未知记忆作用域"):
+            store.append("s1", 1, MemoryKind.PLAN, "计划", scope="global")
+
+
+class TestMemoryScope:
+    def test_three_required_scopes_are_declared(self) -> None:
+        assert MemoryScope.all_scopes() == ("working", "project", "organization")
+
+    def test_records_filter_scopes(self, store: LoopMemory) -> None:
+        for scope in MemoryScope.all_scopes():
+            store.append("s1", 1, MemoryKind.PLAN, scope, scope=scope)
+
+        assert [r.content for r in store.records("s1")] == [
+            "working", "project", "organization"
+        ]
+        assert [r.content for r in store.records("s1", scope=MemoryScope.PROJECT)] == [
+            "project"
+        ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -245,3 +268,31 @@ class TestPersistence:
         store = SQLiteLoopMemory(str(tmp_path / "strpath.sqlite3"))
         store.append("s1", 1, MemoryKind.PLAN, "P")
         assert len(store.records("s1")) == 1
+
+    def test_scope_survives_reopen(self, tmp_path) -> None:
+        path = tmp_path / "scopes.sqlite3"
+        SQLiteLoopMemory(path).append(
+            "s1", 1, MemoryKind.PLAN, "企业规则", scope=MemoryScope.ORGANIZATION
+        )
+        rows = SQLiteLoopMemory(path).records("s1", scope=MemoryScope.ORGANIZATION)
+        assert len(rows) == 1
+        assert rows[0].scope == MemoryScope.ORGANIZATION
+
+    def test_legacy_table_is_migrated_with_working_default(self, tmp_path) -> None:
+        path = tmp_path / "legacy.sqlite3"
+        with sqlite3.connect(path) as connection:
+            connection.execute(
+                """CREATE TABLE loop_memory (
+                    id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                    iteration INTEGER NOT NULL, kind TEXT NOT NULL,
+                    content TEXT NOT NULL, meta TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                "INSERT INTO loop_memory VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("id1", "s1", 1, "plan", "旧记录", "{}", "2026-01-01T00:00:00+00:00"),
+            )
+
+        rows = SQLiteLoopMemory(path).records("s1")
+        assert rows[0].scope == MemoryScope.WORKING

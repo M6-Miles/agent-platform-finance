@@ -159,13 +159,41 @@ def test_research_returns_complete_agent_results(client):
 
     # 验证新增字段存在（可能为 None，但字段必须在响应中）
     required_fields = [
-        "symbol", "run_id", "data_mode",
+        "symbol", "run_id", "data_mode", "requested_data_mode", "effective_data_mode",
         "technical_analysis", "fundamental_analysis",
         "industry_analysis", "market_regime",
         "synthesis", "trade_signal", "risk_result", "confidence"
     ]
     for field in required_fields:
         assert field in state, f"Missing field: {field}"
+    assert state["run_id"]
+    assert state["duration_s"] >= 0
+    assert state["data_mode"] == state["effective_data_mode"]
+
+
+def test_sample_symbol_auto_routes_offline_and_requires_review(client):
+    response = client.post("/research/DEMO001?data_mode=auto")
+    assert response.status_code == 200
+    started = response.json()
+    assert started["requested_data_mode"] == "auto"
+    assert started["effective_data_mode"] == "offline"
+    assert started["data_mode"] == "offline"
+    assert started["status"] == "interrupted"
+
+    state = client.get(f"/research/{started['thread_id']}/state").json()
+    assert state["run_id"] == started["run_id"]
+    assert state["duration_s"] > 0
+    statuses = {
+        state[key]["data_status"]
+        for key in (
+            "technical_analysis", "fundamental_analysis",
+            "industry_analysis", "market_regime",
+        )
+    }
+    assert statuses == {"offline_sample"}
+    assert state["data_quality_summary"]["passed"] is False
+    assert state["data_quality_summary"]["counts"]["offline_sample"] == 4
+    assert state["interrupt_payload"]["reason"] == "preflight_manual_review"
 
 
 def test_status_consistency_across_endpoints(client):

@@ -271,12 +271,16 @@ class TestLoaderBasics:
         info = load_workflow("securities_analysis").describe()
         assert info["workflow_id"] == "securities_analysis"
         assert info["engine"] == "langgraph"
-        assert info["node_count"] == 10
-        assert info["edge_count"] == 14
-        assert info["conditional_edge_count"] == 4
+        assert info["node_count"] == 11
+        assert info["edge_count"] == 15
+        assert info["conditional_edge_count"] == 5
         assert info["checkpoint_enabled"] is True
         assert info["parallel_groups"] == ["analysis_fanout"]
-        assert info["interrupt_nodes"] == ["human_approval", "trading_harness"]
+        assert info["interrupt_nodes"] == [
+            "debate_approval",
+            "human_approval",
+            "trading_harness",
+        ]
         # 摘要必须自证无缺陷，否则摘要本身就在掩盖问题
         assert info["unreachable_nodes"] == []
         assert info["cycles"] == []
@@ -595,9 +599,9 @@ class TestSecuritiesWorkflowMatchesCode:
         )
         assert sorted(wf.node_ids()) == compiled_node_ids
 
-    def test_node_count_is_ten(self, compiled_node_ids: list[str]) -> None:
-        """真实图有 10 个业务节点；数量变化必须是有意识的改动。"""
-        assert len(compiled_node_ids) == 10
+    def test_node_count_is_eleven(self, compiled_node_ids: list[str]) -> None:
+        """真实图有 11 个业务节点；数量变化必须是有意识的改动。"""
+        assert len(compiled_node_ids) == 11
 
     def test_declared_engine_and_implementation(self, wf: WorkflowDefinition) -> None:
         assert wf.engine == "langgraph"
@@ -697,7 +701,7 @@ class TestSecuritiesWorkflowMatchesCode:
 
         source = _squash(inspect.getsource(sg.build_securities_graph))
         conditional = wf.conditional_edges()
-        assert len(conditional) == 4, "真实图有 4 条条件边"
+        assert len(conditional) == 5, "真实图有 5 条条件边"
         for edge in conditional:
             _, router_name = split_target(edge.router)
             assert f'add_conditional_edges("{edge.source}",{router_name}' in source, (
@@ -711,11 +715,20 @@ class TestSecuritiesWorkflowMatchesCode:
     @pytest.mark.parametrize(
         "source_node, state, expected",
         [
-            # route_after_synthesis：错误 → END，低置信 → no_trade，高置信 → trader_agent
+            # route_after_synthesis：辩论阻断优先，再处理错误和置信度
+            (
+                "synthesis_agent",
+                {"status": "ok", "confidence": 0.9, "synthesis": {"debate_blocked": True}},
+                "debate_approval",
+            ),
             ("synthesis_agent", {"status": "error", "confidence": 0.9}, END_SENTINEL),
             ("synthesis_agent", {"status": "ok", "confidence": 0.1}, "no_trade"),
             ("synthesis_agent", {"status": "ok", "confidence": 0.3}, "no_trade"),
             ("synthesis_agent", {"status": "ok", "confidence": 0.9}, "trader_agent"),
+            # route_after_debate_approval
+            ("debate_approval", {"final_action": "block", "confidence": 0.9}, END_SENTINEL),
+            ("debate_approval", {"final_action": "execute", "confidence": 0.3}, "no_trade"),
+            ("debate_approval", {"final_action": "execute", "confidence": 0.9}, "trader_agent"),
             # route_after_trader：HAR 优先于 error
             ("trader_agent", {"har_required": True, "status": "error"}, "human_approval"),
             ("trader_agent", {"har_required": False, "status": "error"}, END_SENTINEL),
@@ -752,9 +765,13 @@ class TestSecuritiesWorkflowMatchesCode:
         标记 reachable=false 的分支必须给出说明，防止用它掩盖漏测。
         """
         exercised = {
+            ("synthesis_agent", "debate_approval"),
             ("synthesis_agent", END_SENTINEL),
             ("synthesis_agent", "no_trade"),
             ("synthesis_agent", "trader_agent"),
+            ("debate_approval", END_SENTINEL),
+            ("debate_approval", "no_trade"),
+            ("debate_approval", "trader_agent"),
             ("trader_agent", "human_approval"),
             ("trader_agent", END_SENTINEL),
             ("trader_agent", "risk_manager"),
@@ -817,12 +834,13 @@ class TestSecuritiesWorkflowMatchesCode:
         assert sorted(wf.interrupt_nodes()) == sorted(actual), (
             f"中断点漂移：声明 {sorted(wf.interrupt_nodes())}，实际 {sorted(actual)}"
         )
-        assert sorted(actual) == ["human_approval", "trading_harness"]
+        assert sorted(actual) == ["debate_approval", "human_approval", "trading_harness"]
         assert sg.interrupt is not None  # 确认 interrupt 已在模块中导入
 
     def test_interrupt_entries_are_well_formed(self, wf: WorkflowDefinition) -> None:
         entries = {i["node"]: i for i in wf.raw["interrupts"]}
-        assert set(entries) == {"human_approval", "trading_harness"}
+        assert set(entries) == {"debate_approval", "human_approval", "trading_harness"}
+        assert entries["debate_approval"]["payload_type"] == "debate_review"
         assert entries["human_approval"]["payload_type"] == "har_approval"
         assert entries["trading_harness"]["conditional"] is True, (
             "trading_harness 只在 manual_review 时中断，属条件性中断"

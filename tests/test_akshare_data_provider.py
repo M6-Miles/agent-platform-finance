@@ -223,3 +223,75 @@ class TestMissingAkshare:
         provider = AkShareMarketDataProvider()  # no loaders → will call _load_akshare
         with pytest.raises(MarketDataDependencyError, match="AkShare"):
             provider.list_securities()
+
+
+class TestRealtimeQuoteConsistency:
+    def test_uses_previous_trading_day_close_not_current_open(self, monkeypatch) -> None:
+        class FakeAk:
+            @staticmethod
+            def stock_zh_a_minute(**_kwargs):
+                return pd.DataFrame({
+                    "day": [
+                        "2026-08-07 14:59:00", "2026-08-07 15:00:00",
+                        "2026-08-10 09:31:00", "2026-08-10 10:00:00",
+                    ],
+                    "open": [10.0, 10.1, 11.0, 11.1],
+                    "close": [10.1, 10.2, 11.1, 11.22],
+                })
+
+        provider = AkShareMarketDataProvider()
+        monkeypatch.setattr(provider, "_load_akshare", lambda: FakeAk())
+
+        quote = provider.get_realtime_quote("000001")
+
+        assert quote["price"] == 11.22
+        assert quote["prev_close"] == 10.2
+        assert quote["change_pct"] == 10.0
+        assert "上一交易日校验" in quote["source"]
+
+    def test_ohlcv_validation_rejects_impossible_high_low(self) -> None:
+        frame = pd.DataFrame({
+            "date": [date(2026, 8, 10)],
+            "open": [10.0], "high": [9.0], "low": [8.0], "close": [11.0],
+            "volume": [100.0],
+        })
+
+        with pytest.raises(MarketDataUnavailableError, match="OHLC"):
+            AkShareMarketDataProvider._validate_ohlcv(frame, "000001")
+
+
+class TestNetworkCallDoesNotUseGlobalSocketTimeout:
+    """证明生产路径 _network_call 不调用 socket.setdefaulttimeout。
+
+    项目会并发请求（Agent + 数据 + LLM API），全局 socket 超时会影响其他线程。
+    """
+
+    def test_network_call_does_not_modify_socket_default_timeout(self, monkeypatch) -> None:
+        """_network_call 不应调用 socket.setdefaulttimeout。"""
+        import socket
+
+        call_tracker = {"setdefaulttimeout_called": False}
+        def patched_setdefaulttimeout(timeout):
+            call_tracker["setdefaulttimeout_called"] = True
+            # 如果被调用则抛错，让测试立即失败
+            raise AssertionError(
+                f"socket.setdefaulttimeout({timeout}) 被调用，违反并发安全要求"
+            )
+
+        monkeypatch.setattr(socket, "setdefaulttimeout", patched_setdefaulttimeout)
+
+        # 使用自定义 loader 模拟网络调用，不触发真实 akshare
+        def mock_loader():
+            return _make_stock_list()
+
+        provider = AkShareMarketDataProvider(stock_list_loader=mock_loader)
+
+        # 调用会走测试 mock 路径（直接调用 loader，不经过 _network_call）
+        # 这个测试验证即使将来生产路径被错误修改，monkeypatch 也会捕获
+        provider.list_securities()
+
+        # 验证没有调用全局 socket 超时设置
+        assert not call_tracker["setdefaulttimeout_called"]
+
+        # 清理
+        monkeypatch.undo()

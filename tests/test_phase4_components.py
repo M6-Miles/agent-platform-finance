@@ -290,6 +290,33 @@ def test_observability_per_agent_breakdown():
     assert summary["per_agent"]["agent_b"]["success_rate_pct"] == 0.0
 
 
+def test_observability_sqlite_persists_across_instances(tmp_path):
+    path = tmp_path / "observability.sqlite3"
+    first = ObservabilityPanel(path)
+    first.record_call(
+        "agent_a", "task", 0.25, True,
+        input_tokens=12, output_tokens=8,
+        guardrail_violations=["test_guardrail"], retries=1,
+    )
+
+    second = ObservabilityPanel(path)
+    summary = second.get_summary()
+
+    assert summary["total_calls"] == 1
+    assert summary["total_input_tokens"] == 12
+    assert summary["recent_calls"][0]["agent_name"] == "agent_a"
+    assert summary["recent_calls"][0]["guardrail_violations"] == ["test_guardrail"]
+
+
+def test_observability_sqlite_reset_is_persistent(tmp_path):
+    path = tmp_path / "observability.sqlite3"
+    panel = ObservabilityPanel(path)
+    panel.record_call("agent", "task", 0.1, True)
+    panel.reset()
+
+    assert ObservabilityPanel(path).get_summary()["total_calls"] == 0
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. MockBroker Tests
 # ═══════════════════════════════════════════════════════════════════════════

@@ -268,6 +268,12 @@ class TestDefaultRegistryCoverage:
         "get_industry_list",        # 行业列表
         "get_industry_spot",        # 行业行情
         "get_stock_industry",       # 个股所属行业
+        # 信息类工具（任务4补充）
+        "get_financial_news",           # 财经新闻
+        "get_stock_announcements",      # 公司公告
+        "get_research_report_summary",  # 研报摘要
+        "get_macro_policy",             # 宏观政策
+        "get_interest_rates",           # 利率数据
     ])
     def test_required_tool_registered(self, tool_name):
         """说明书列举的数据类别必须都有对应工具。"""
@@ -277,6 +283,8 @@ class TestDefaultRegistryCoverage:
     @pytest.mark.parametrize("category", [
         "history", "quote", "fundflow", "financials",
         "valuation", "index", "industry",
+        # 信息类类别（任务4补充）
+        "news", "announcements", "research", "macro",
     ])
     def test_category_covered(self, category):
         reg = build_default_registry(offline=True)
@@ -543,3 +551,60 @@ class TestRootShimsActuallyRoute:
         names = {t["name"] for t in tools}
         for expected in ("get_price_history", "get_realtime_quote", "get_fund_flow"):
             assert expected in names, f"能力集缺少 {expected}"
+
+
+# ═══════════════════════════════════════════════════════════════
+#   九、信息工具（新闻/公告/研报/宏观/利率）离线阻断与语义（任务4）
+# ═══════════════════════════════════════════════════════════════
+
+_INFO_TOOLS = (
+    "get_financial_news",
+    "get_stock_announcements",
+    "get_research_report_summary",
+    "get_macro_policy",
+    "get_interest_rates",
+)
+
+
+class TestInfoToolsCoverage:
+    """info_tools.py 的注册与离线语义测试。"""
+
+    @pytest.mark.parametrize("tool_name", _INFO_TOOLS)
+    def test_info_tool_registered_in_default_registry(self, tool_name: str) -> None:
+        """每个信息工具必须出现在默认注册表中。"""
+        reg = build_default_registry(offline=True)
+        assert reg.has(tool_name), f"默认注册表缺少信息工具 {tool_name}"
+
+    @pytest.mark.parametrize("tool_name", _INFO_TOOLS)
+    def test_info_tool_blocked_in_offline_mode(self, tool_name: str) -> None:
+        """离线模式下所有信息工具必须被阻断（函数体不执行）。"""
+        reg = build_default_registry(offline=True)
+        env = reg.call(tool_name, symbol="600519")
+        assert env["ok"] is False
+        assert env["error_type"] == "OfflineModeBlocked"
+        assert env["data"] is None, f"{tool_name} 离线阻断时不得返回数据"
+
+    @pytest.mark.parametrize("tool_name", _INFO_TOOLS)
+    def test_info_tool_declares_network_required(self, tool_name: str) -> None:
+        """信息工具必须声明 requires_network=True，以保证离线阻断生效。"""
+        reg = build_default_registry(offline=False)
+        spec = next(t for t in reg.list_tools() if t["name"] == tool_name)
+        assert spec["requires_network"] is True, (
+            f"{tool_name} 未声明 requires_network=True，离线阻断不会生效"
+        )
+
+    def test_info_tools_cover_all_required_categories(self) -> None:
+        """信息工具的 category 集合必须包含 news/announcements/research/macro。"""
+        reg = build_default_registry(offline=True)
+        cats = {t["category"] for t in reg.list_tools() if t["name"] in _INFO_TOOLS}
+        for expected in ("news", "announcements", "research", "macro"):
+            assert expected in cats, f"信息工具未覆盖类别 {expected!r}"
+
+    def test_offline_block_never_fabricates_data(self) -> None:
+        """离线阻断返回的信封 data 字段必须为 None，不得包含伪造内容。"""
+        reg = build_default_registry(offline=True)
+        for name in _INFO_TOOLS:
+            env = reg.call(name, symbol="600519")
+            assert env.get("data") is None, (
+                f"{name} 离线信封 data 不为 None，可能伪造了内容: {env.get('data')}"
+            )

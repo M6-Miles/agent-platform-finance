@@ -15,7 +15,7 @@ tests/test_sharpe_stats.py
     T=1260  → sqrt(0.2) = 0.44721360
     T=2520  → sqrt(0.1) = 0.31622777
 
-另外复刻两个真实历史陷阱（见 progress.txt 2026-08-05 各条），
+另外复刻两个真实历史陷阱，
 确保本模块确实能把它们判出来。
 """
 from __future__ import annotations
