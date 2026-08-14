@@ -141,7 +141,7 @@ def summary_doc():
     p(d, "边界必须明确：系统只生成研究建议和模拟交易结果；MockBroker 不连接券商、不提交真实订单；真实行情和天气属于外部网络依赖；回测指标如 Sharpe 未达标时按事实记录，不通过修改公式或样本伪造达标。")
     d.add_heading("二、总体架构", 1)
     table(d, ["层次", "主要组件", "职责"], [
-        ("展示层", "frontend_prototype.html；Streamlit 备用界面", "登录、行情、证券分析、深度投研、天气、模拟盘和状态展示"),
+        ("展示层", "frontend_prototype.html", "登录、行情、证券分析、深度投研、天气、模拟盘和状态展示"),
         ("接口层", "FastAPI", "HTTP 路由、鉴权、参数校验、统一错误响应、研究任务和状态查询"),
         ("编排层", "LangGraph 1.x；SQLite Checkpoint", "节点、条件路由、中断、恢复、审批和任务状态持久化"),
         ("Agent 层", "Technical/Fundamental/Industry/Regime/Bull-Bear/Synthesis/Trader/Risk", "分工分析、综合判断、交易建议和风险拦截"),
@@ -233,7 +233,7 @@ def beginner_doc():
     d.add_heading("1. 这个项目到底做什么？", 2)
     p(d, "用户在网页中输入股票代码，系统取得行情和研究数据，然后分别从技术、基本面、行业和大盘环境四个角度分析，再综合成报告，给出研究性质的交易信号。若信号涉及模拟交易，风控模块先检查，必要时停下来等人批准。天气 Demo 复用了同样的“输入—调用工具—返回结构化结果—标注来源”思想。")
     d.add_heading("2. 前端和后端是什么？", 2)
-    p(d, "前端就是你看见和点击的网页：输入框、按钮、图表、状态卡片都属于前端。项目中的主要前端是 frontend_prototype.html，备用前端是 Streamlit 页面。后端是藏在电脑后台的 Python 程序：它接收前端请求，计算、调用数据、保存记录，再把结果返回。")
+    p(d, "前端就是你看见和点击的网页：输入框、按钮、图表、状态卡片都属于前端。项目使用 frontend_prototype.html 作为唯一主前端。后端是藏在电脑后台的 Python 程序：它接收前端请求，计算、调用数据、保存记录，再把结果返回。")
     p(d, "一次点击的完整链路是：浏览器按钮 → JavaScript 发出 HTTP 请求 → FastAPI 路由接收 → Service 调用 Agent 和 Provider → SQLite 保存状态 → JSON 返回 → 浏览器更新卡片。HTTP 是浏览器和后端传话的规则；JSON 是双方都能读懂的结构化文字。")
     d.add_heading("3. 本项目中的三种运行方式", 2)
     table(d, ["方式", "你看到什么", "适合什么时候"], [

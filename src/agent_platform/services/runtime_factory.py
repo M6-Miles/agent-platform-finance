@@ -16,7 +16,7 @@ AnalysisToolHandler = Callable[..., str]
 def _reload_deepseek() -> type:
     """强制从磁盘重新加载 deepseek_llm_provider 模块。
 
-    解决 Streamlit 热重载时 sys.modules 缓存旧字节码的问题：
+    解决长生命周期 Python 进程中 sys.modules 缓存旧字节码的问题：
     即使文件已更新，若 Python 进程未重启，sys.modules 里仍是旧定义。
     importlib.reload() 强制重新执行 .py 文件，返回最新的 DeepSeekLLMProvider 类。
     """

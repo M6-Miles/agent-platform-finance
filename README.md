@@ -11,7 +11,6 @@
 - **FastAPI 后端**：提供认证、健康检查、证券分析、工作流、会话、模拟盘、天气与管理接口
 - **HTTPS 部署**：生产或对外演示时通过 Nginx 与 TLS 证书提供 HTTPS；本机 `127.0.0.1` 可直接使用 HTTP
 - **Mock Agent**：离线可预测，不调用任何外部大模型
-- **可选 Streamlit 页面**：保留为辅助分析入口，不是当前主前端
 
 ### 数据源
 - **内置样例数据**（默认）：`DEMO001`–`DEMO004`（演示用）+ `TEST001`–`TEST020`（验收用），完全离线，零配置。
@@ -118,24 +117,24 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ```bash
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev,ui,docs]"
+python -m pip install -e ".[dev,docs]"
 ```
 
 如需尽量复现本次 Windows 验证环境，可使用版本约束快照：
 
 ```powershell
-python -m pip install -e ".[dev,ui,docs,akshare,llm]" -c requirements.lock
+python -m pip install -e ".[dev,docs,akshare,llm]" -c requirements.lock
 ```
 
 `requirements.lock` 是当前已验证环境的精确版本快照；跨操作系统部署仍应重新执行测试。
 
-正常情况下会安装 FastAPI、Streamlit、pandas、pytest 等依赖。
+正常情况下会安装 FastAPI、pandas、pytest 等依赖。
 
 如果安装慢或失败，通常是网络问题；可以稍后重试，或使用公司/学校允许的镜像源。
 
 ### 6.1 可选：安装 AkShare 以接入真实 A 股数据
 
-如果你希望在 Streamlit 页面中切换到真实 A 股日线数据（免费、需联网），请执行：
+如果你希望在 HTML 主页面中切换到真实 A 股日线数据（免费、需联网），请执行：
 
 ```bash
 python -m pip install -e ".[akshare]"
@@ -174,13 +173,13 @@ TUSHARE_TOKEN=你的Token python Scripts/validate_deliverables.py --online --tus
 **一次安装所有可选依赖：**
 
 ```bash
-python -m pip install -e ".[akshare,tushare,llm,ui]"
+python -m pip install -e ".[akshare,tushare,llm]"
 ```
 
 **注意**：
 - AkShare 是第三方开源项目，提供免费的 A 股行情接口，无需 Token。
 - 首次调用会联网获取证券列表，约需 1～3 秒。
-- 如果网络不稳定或 AkShare 服务临时不可用，Streamlit 页面会显示明确错误，你可以点击按钮切换回内置样例数据。
+- 如果网络不稳定或 AkShare 服务临时不可用，HTML 主页面会显示明确错误，你可以切换回内置样例数据。
 - 不安装 AkShare 也可以正常使用项目（仅限内置样例数据）。
 - Tushare Token 不要提交到代码仓库；仅通过 `.env` 或环境变量传入。
 
@@ -217,7 +216,7 @@ LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=你的密钥
 ```
 
-3. 保存后重启 Streamlit 即可。
+3. 保存后重启 FastAPI 服务即可。
 
 ### 7.2 可选：启用 Claude 大模型
 
@@ -329,38 +328,15 @@ Uvicorn running on http://127.0.0.1:8003
 
 停止后端：在终端按 `Ctrl + C`。
 
-## 10. 启动可选 Streamlit 旧版页面
+## 10. 跑一个证券分析示例
 
-主界面已经由 FastAPI 在 `8003` 端口直接提供。仅在需要对照旧版 Streamlit 页面时，另开终端执行：
-
-```bash
-streamlit run src/agent_platform/ui/streamlit_app.py
-```
-
-正常情况下浏览器会打开：
-
-```text
-http://localhost:8501
-```
-
-如果端口 8501 被占用，可执行：
-
-```bash
-streamlit run src/agent_platform/ui/streamlit_app.py --server.port 8502
-```
-
-停止页面：在终端按 `Ctrl + C`。
-
-## 11. 跑一个证券分析示例
-
-在 Streamlit 页面中：
+在 HTML 主页面的“证券分析”功能中：
 
 1. 选择 `DEMO001` 或 `DEMO002`。
 2. 选择开始日期和结束日期。
 3. 点击“运行分析”。
 4. 查看最新收盘价、5 日均线、区间收益率和最大回撤。
-5. 展开“查看表格数据（无障碍/复核用）”可以看到原始样例数据。
-6. 在左侧“本地历史”中可以看到最近的分析记录。
+5. 查看分析结果、技术指标、数据来源和风险提示。
 
 你应该能看到：
 
@@ -368,45 +344,45 @@ streamlit run src/agent_platform/ui/streamlit_app.py --server.port 8502
 - 更新时间：2026-07-29。
 - 风险提示：仅供研究参考，不构成投资建议。
 
-## 12. 跑一个 Agent 问答示例
+## 11. 跑一个 Agent 问答示例
 
-在 Streamlit 页面底部输入：
+在 HTML 主页面的“Agent 对话”功能中输入：
 
 ```text
 请分析 DEMO001
 ```
 
-按回车发送给 Agent。
+点击发送按钮提交给 Agent。
 
-Mock Agent 会调用本地证券分析工具，并返回一段分析说明。展开“查看 Agent 工具调用过程”可以看到工具执行结果。你可以继续发送下一条消息，当前会话会保存在 SQLite 中；刷新页面后，从左侧“最近会话”重新选择即可查看历史。点击“新建会话”可以开始一段独立对话。
+Mock Agent 会调用本地证券分析工具，并返回分析说明和工具执行明细。你可以继续发送消息，当前会话会保存在 SQLite 中；刷新页面后仍可查看历史会话。
 
 也可以通过 FastAPI 接口测试：
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/chat" \
+curl -X POST "http://127.0.0.1:8003/chat" \
   -H "Content-Type: application/json" \
   -d '{"message":"请分析 DEMO002"}'
 ```
 
-## 13. 常见问题
+## 12. 常见问题
 
-### 13.1 `python` 找不到
+### 12.1 `python` 找不到
 
 说明 Python 没装好或没加入 PATH。重新安装 Python，并勾选 Add Python to PATH。
 
-### 13.2 `pytest` 找不到
+### 12.2 `pytest` 找不到
 
 请确认虚拟环境已激活，并重新安装依赖：
 
 ```bash
-python -m pip install -e ".[dev,ui]"
+python -m pip install -e ".[dev]"
 ```
 
-### 13.3 端口被占用
+### 12.3 端口被占用
 
-FastAPI 默认端口是 8000，Streamlit 默认端口是 8501。可以按上文改端口。
+项目默认使用 FastAPI 的 `8003` 端口。端口被占用时可按上文改为其他端口。
 
-### 13.4 中文路径导致问题
+### 12.4 中文路径导致问题
 
 本项目路径包含中文。大多数情况下可以正常运行。如果某个工具报路径问题，可以把项目复制到较短的英文路径，例如：
 
@@ -414,7 +390,7 @@ FastAPI 默认端口是 8000，Streamlit 默认端口是 8501。可以按上文�
 D:\projects\agent-platform-finance-demo
 ```
 
-### 13.5 页面打开但没有数据
+### 12.5 页面打开但没有数据
 
 请确认文件存在：
 
@@ -422,9 +398,9 @@ D:\projects\agent-platform-finance-demo
 data/sample/prices.csv
 ```
 
-并确认你是在项目根目录启动 Streamlit。
+并确认你是在项目根目录启动 FastAPI 服务。
 
-### 13.6 查看 SQLite 文件是否已经创建
+### 12.6 查看 SQLite 文件是否已经创建
 
 PowerShell：
 
@@ -438,9 +414,9 @@ Git Bash：
 ls -l data/app.sqlite3
 ```
 
-### 13.7 重置本地聊天和分析历史
+### 12.7 重置本地聊天和分析历史
 
-> 警告：下面的操作会永久删除本机聊天会话和分析历史。先确认不再需要这些记录，并停止 FastAPI 和 Streamlit。
+> 警告：下面的操作会永久删除本机聊天会话和分析历史。先确认不再需要这些记录，并停止 FastAPI 服务。
 
 PowerShell：
 
@@ -456,7 +432,7 @@ rm data/app.sqlite3
 
 下次启动时，应用会自动创建一个新的空数据库。内置行情文件 `data/sample/prices.csv` 不会被删除。
 
-## 14. 后续可扩展方向
+## 13. 后续可扩展方向
 
 第一版故意保持简单。后续可以逐步增加：
 
@@ -471,11 +447,11 @@ rm data/app.sqlite3
 
 ---
 
-## 15. Harness Engineering V2.0 核心组件（进阶）
+## 14. Harness Engineering V2.0 核心组件（进阶）
 
 > 本节面向需要深入了解 Agent 平台架构的读者。
 
-### 15.1 AgentHarness SDK
+### 14.1 AgentHarness SDK
 
 `src/agent_platform/core/harness.py` 实现了完整的 Harness 免疫系统，包含 5 个内置 Guardrail：
 
@@ -489,7 +465,7 @@ rm data/app.sqlite3
 
 CircuitBreaker（熔断器）：连续失败 N 次后自动开路，防止雪崩。
 
-### 15.2 工作流编排引擎
+### 14.2 工作流编排引擎
 
 #### 主引擎：LangGraph（生产入口）
 
@@ -563,7 +539,7 @@ result = g.invoke(Command(resume="reject"), config=config)
 result = resume_securities_analysis("approve", thread_id="my-analysis-001", graph=g)
 ```
 
-### 15.3 专业分析 Agent
+### 14.3 专业分析 Agent
 
 | Agent | 文件 | 输出 |
 |-------|------|------|
@@ -575,7 +551,7 @@ result = resume_securities_analysis("approve", thread_id="my-analysis-001", grap
 | 交易员 | `trader_agent.py` | 目标价 + 仓位建议（≤10%，>10% 需人工审批） |
 | 风控 | `risk_manager_agent.py` | 止损触发时单笔账户亏损≤2%、行业集中≤30%、回撤>15% 强制减仓 |
 
-### 15.4 Pre-Flight Checklist（交易前门卫）
+### 14.4 Pre-Flight Checklist（交易前门卫）
 
 `src/agent_platform/finance/trading_harness.py` 实现 9 项前置检查：
 
@@ -589,7 +565,7 @@ result = resume_securities_analysis("approve", thread_id="my-analysis-001", grap
 8. A 股交易时段（Asia/Shanghai 工作日 09:30-11:30、13:00-15:00）
 9. 流动性（最新成交量 × 收盘价的日成交额代理值，缺失时进入人工复核）
 
-### 15.5 工程层（Phase 4）
+### 14.5 工程层（Phase 4）
 
 | 组件 | 文件 | 说明 |
 |------|------|------|
@@ -612,7 +588,7 @@ PAPER_MONITOR_POLL_INTERVAL_S=30
 `GET /paper-trading/monitor/jobs/{job_id}/runs`。同一任务同一自然日只保留一条运行记录。
 代码和离线测试只能证明调度、持久化与恢复能力；“真实运行满 1～2 周”必须由自然时间积累，不能用历史快速回放代替。
 
-### 15.6 快速运行回测
+### 14.6 快速运行回测
 
 ```bash
 # 使用内置样例数据（离线，零配置）
@@ -633,7 +609,7 @@ python Scripts/run_backtest.py --list
 > `data/real/measure_survivorship_result.txt`（存活者偏差）。
 > 实测结论：E-01「夏普 > 0.5」**未达标**，留出段夏普为 −0.035。
 
-### 15.6.1 重新生成样例数据
+### 14.6.1 重新生成样例数据
 
 样例行情由确定性生成器产出，不依赖 `PYTHONHASHSEED`，任何机器上结果逐字节一致：
 
@@ -651,7 +627,7 @@ python Scripts/generate_sample_data.py --verify
 数据集：`DEMO001`–`DEMO004`（演示）+ `TEST001`–`TEST020`（验收），252 个交易日，
 起始 2025-01-02，输出到 `data/sample/prices.csv`。
 
-### 15.7 硬性安全约束
+### 14.7 硬性安全约束
 
 - **禁止无人工确认下单**：仓位 > 10% 的信号强制抛出 `HumanApprovalRequired` 异常
 - **数据必须带 source 字段**：所有 Agent 输出通过 `SourceAttributionFilter` 校验
@@ -659,7 +635,7 @@ python Scripts/generate_sample_data.py --verify
 - **API Key 不入代码**：DEEPSEEK_API_KEY / ANTHROPIC_API_KEY 只存 `.env`，已在 `.gitignore`
 - **不连接真实券商**：MockBroker 为纯本地撮合，严禁接入实盘接口
 
-### 15.8 非金融领域 Demo（P-05 可移植性验证）
+### 14.8 非金融领域 Demo（P-05 可移植性验证）
 
 `examples/weather_analysis/` 演示同一套 Harness 机制在非金融领域（天气分析）的零改动接入：
 
@@ -676,7 +652,7 @@ python examples/weather_analysis/run_demo.py
 
 接入新领域所需工作 ≤ 2 天。天气专项测试位于 `tests/test_p05_weather_demo.py`。
 
-### 15.9 HTML 前端原型（frontend_prototype.html）
+### 14.9 HTML 前端原型（frontend_prototype.html）
 
 `frontend_prototype.html` 是主前端，由 FastAPI 在根路径提供。它用 Tailwind CDN 实现，
 不需要 Node / npm / 构建步骤，包含 8 个视图：证券分析 / 多股对比 / Agent 对话 /

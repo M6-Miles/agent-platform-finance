@@ -6,7 +6,7 @@
 
 **通用 Agent 平台 + 证券金融分析应用**  
 范式：Harness ⊂ Loop ⊂ Graph（V2.0）  
-技术栈：Python 3.11 · FastAPI · Streamlit · SQLite · LangGraph · AkShare
+技术栈：Python 3.11 · FastAPI · HTML/JavaScript · SQLite · LangGraph · AkShare
 
 ---
 
@@ -78,12 +78,12 @@ project/
 │   │   ├── portfolio_analysis.py  # 多股票并行对比
 │   │   ├── chart_builder.py       # Plotly 图表工厂
 │   │   ├── report_exporter.py     # Excel + HTML 报告导出
+│   │   ├── backtest_verdict.py    # 回测夏普判定领域逻辑
 │   │   ├── akshare_data_provider.py
 │   │   ├── sample_data_provider.py
 │   │   └── constants.py           # DISCLAIMER 共享常量
 │   │
 │   ├── api/main.py                # FastAPI（健康检查、对话、分析、深度投研恢复）
-│   ├── ui/streamlit_app.py        # Streamlit 前端（4 个 Tab）
 │   ├── storage/sqlite_store.py    # SQLite CRUD
 │   ├── services/application_service.py
 │   └── config.py                  # Settings（pydantic-settings）
@@ -97,8 +97,7 @@ project/
 
 | 用途 | 命令 |
 |------|------|
-| 启动 API 服务 | `uvicorn agent_platform.api.main:app --reload` |
-| 启动 Streamlit UI | `streamlit run src/agent_platform/ui/streamlit_app.py` |
+| 启动 HTML 主前端与 API | `uvicorn agent_platform.api.main:app --host 127.0.0.1 --port 8003`，访问 `http://127.0.0.1:8003/` |
 | 运行全套测试 | `pytest tests/ -q` |
 | 切换 LLM 提供商 | `.env` 中设置 `LLM_PROVIDER=mock\|deepseek\|claude` |
 

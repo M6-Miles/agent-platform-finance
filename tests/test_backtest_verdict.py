@@ -2,7 +2,7 @@
 锁死回测页的夏普判定纪律
 ========================
 
-被测对象：`streamlit_app.backtest_sharpe_verdict()`。
+被测对象：`finance.backtest_verdict.backtest_sharpe_verdict()`。
 
 为什么需要独立测试
 ------------------
@@ -28,7 +28,7 @@ from __future__ import annotations
 import pytest
 
 from agent_platform.finance.backtesting import BacktestResult
-from agent_platform.ui.streamlit_app import backtest_sharpe_verdict
+from agent_platform.finance.backtest_verdict import backtest_sharpe_verdict
 
 
 # ─── 构造工具 ────────────────────────────────────────────────────────────────
@@ -219,7 +219,7 @@ class TestLevelContract:
         而 UI 按 "inconclusive"/"pass"/"fail" 分发 —— 每次渲染都会 KeyError。
         单看两边各自的代码都是对的，只有契约测试能抓住这种错配。
         """
-        import agent_platform.ui.streamlit_app as app
+        import agent_platform.finance.backtest_verdict as verdict_module
 
         expected = {"inconclusive", "pass", "fail"}
         seen = {
@@ -232,11 +232,11 @@ class TestLevelContract:
         }
         assert seen == expected, "三种判定都应可达"
 
-        src = app.__file__
+        src = verdict_module.__file__
         with open(src, encoding="utf-8") as fh:
             text = fh.read()
         for key in expected:
-            assert f'"{key}"' in text, f"UI 未处理 level={key}"
+            assert f'"{key}"' in text, f"判定模块未处理 level={key}"
 
     def test_custom_threshold_is_honoured(self):
         """阈值可配置，且判定随之改变（默认 0.5 不是写死的）。"""

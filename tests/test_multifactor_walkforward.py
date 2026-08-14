@@ -1489,9 +1489,10 @@ class TestFormulaUnchanged:
                   ).read_text(encoding="utf-8")
         assert "self.sharpe_calendar >= 0.5" in bt_src
 
-        ui = (ROOT / "src" / "agent_platform" / "ui" / "streamlit_app.py"
-              ).read_text(encoding="utf-8")
-        assert "threshold: float = 0.5" in ui
+        verdict_src = (
+            ROOT / "src" / "agent_platform" / "finance" / "backtest_verdict.py"
+        ).read_text(encoding="utf-8")
+        assert "threshold: float = 0.5" in verdict_src
 
     def test_new_engine_reuses_original_sharpe_function(self):
         """

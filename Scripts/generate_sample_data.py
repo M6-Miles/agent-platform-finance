@@ -10,7 +10,7 @@ Scripts/generate_sample_data.py
 1. **完全确定性**：每个标的使用固定整数种子，与 PYTHONHASHSEED 无关。
    同一份代码在任何机器、任何进程上生成的 CSV 逐字节一致（见 --verify）。
 2. **两组数据**：
-   - DEMO001–DEMO004：README / Streamlit / 测试引用的离线演示标的。
+   - DEMO001–DEMO004：README / HTML 前端 / 测试引用的离线演示标的。
    - TEST001–TEST020：交付物验收（≥20 只）使用的合成标的集。
 3. **不预设涨跌**：漂移项按标的确定性地取值，正负兼有，量级接近真实 A 股，
    不人为拉高信噪比。回测结论因此可信。

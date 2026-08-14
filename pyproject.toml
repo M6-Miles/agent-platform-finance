@@ -29,9 +29,6 @@ dev = [
 docs = [
     "python-docx>=1.2,<2.0",
 ]
-ui = [
-    "streamlit>=1.30,<2.0",
-]
 akshare = [
     "akshare>=1.10,<2.0",
 ]
