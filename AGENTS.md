@@ -27,7 +27,7 @@ project/
 │   ├── calculate_indicators.py    # 技术指标计算（MA/EMA/MACD/RSI/KDJ/...）
 │   └── fetch_financials.py        # 基本面数据拉取（PE/PB/ROE/三大报表）
 │
-├── Scripts/                   # 自动化验收脚本（共 15 个 py/js）
+├── Scripts/                   # 自动化、验收与文档脚本（当前 20 个 py/js）
 │   ├── validate_schema.py         # 输出 Schema 校验
 │   ├── validate_deliverables.py   # 三项交付物验收（A/B/C）
 │   ├── run_agent_loop_demo.py     # Loop 五要素可运行演示（自带审计，离线零网络）
@@ -53,8 +53,14 @@ project/
 │   └── trader_agent.md
 │
 ├── data/
-│   ├── app.sqlite3            # 主数据库（sessions / messages / analysis_records）
-│   └── sample/prices.csv      # 离线样例数据（DEMO001-003）
+│   ├── sample/prices.csv      # 入库的离线样例数据（DEMO001-004 / TEST001-020）
+│   ├── evaluation/            # 入库的固定 LLM 评测集
+│   ├── reference/             # 入库的版本化交易日历
+│   └── app.sqlite3            # 本地运行数据库（Git 忽略，不属于源码交付）
+│
+├── assets/                    # 本地编译的前端 CSS，运行时不依赖 CDN
+├── deploy/                    # Docker、Nginx、HTTPS、备份及服务器更新脚本
+├── docs/                      # 权威验收报告、实验索引和两份 Word 交付文档
 │
 ├── src/agent_platform/
 │   ├── core/

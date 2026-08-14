@@ -316,14 +316,18 @@ class AkShareMarketDataProvider:
                 return self._get_realtime_quote_from_minute_loader(normalized)
             payload = self._fetch_tencent_snapshot(tencent_sym)
             return self._parse_tencent_snapshot(payload, normalized)
-        except MarketDataUnavailableError:
-            # 已是显式不可用（空数据分支），保持原因不被包装成第二层错误
-            raise
         except Exception as exc:
             _log.warning("腾讯行情接口失败: %s", exc)
-            self._raise_quote_unavailable(
-                normalized, f"腾讯行情接口失败（{type(exc).__name__}）：{exc}"
-            )
+            try:
+                sina_payload = self._fetch_sina_snapshot(tencent_sym)
+                return self._parse_sina_snapshot(sina_payload, normalized)
+            except Exception as backup_exc:
+                _log.warning("新浪备用行情接口失败: %s", backup_exc)
+                self._raise_quote_unavailable(
+                    normalized,
+                    f"腾讯与新浪备用行情均失败（{type(exc).__name__}/"
+                    f"{type(backup_exc).__name__}）",
+                )
 
     def _get_realtime_quote_from_minute_loader(self, symbol: str) -> dict:
         """兼容注入式测试 loader 的分钟线校验路径。"""
@@ -396,6 +400,59 @@ class AkShareMarketDataProvider:
             "updated_at": quote_time.isoformat(),
             "data_status": "live",
             "fallback_reason": None,
+        }
+
+    @staticmethod
+    def _fetch_sina_snapshot(market_symbol: str) -> str:
+        """Fetch a bounded backup quote; the parser performs full consistency checks."""
+        import httpx
+
+        response = httpx.get(
+            f"https://hq.sinajs.cn/list={market_symbol}",
+            headers={"Referer": "https://finance.sina.com.cn/"},
+            timeout=httpx.Timeout(2.2),
+        )
+        response.raise_for_status()
+        return response.content.decode("gb18030", errors="strict")
+
+    def _parse_sina_snapshot(self, payload: str, symbol: str) -> dict:
+        match = re.search(r'="(.*)";?\s*$', payload.strip())
+        if match is None:
+            self._raise_quote_unavailable(symbol, "新浪备用行情格式无效")
+        fields = match.group(1).split(",")
+        if len(fields) <= 31:
+            self._raise_quote_unavailable(symbol, "新浪备用行情字段不完整")
+        try:
+            name = fields[0].strip()
+            open_price = float(fields[1])
+            prev_close = float(fields[2])
+            price = float(fields[3])
+            high = float(fields[4])
+            low = float(fields[5])
+            quote_time = datetime.strptime(
+                f"{fields[30].strip()} {fields[31].strip()}", "%Y-%m-%d %H:%M:%S"
+            )
+        except (TypeError, ValueError) as exc:
+            self._raise_quote_unavailable(symbol, f"新浪备用行情字段无法解析：{exc}")
+        if not name or min(price, prev_close) <= 0:
+            self._raise_quote_unavailable(symbol, "新浪备用行情证券或价格无效")
+        positive_intraday = [value for value in (open_price, price) if value > 0]
+        if high > 0 and high < max(positive_intraday):
+            self._raise_quote_unavailable(symbol, "新浪备用行情最高价不一致")
+        if low > 0 and low > min(positive_intraday):
+            self._raise_quote_unavailable(symbol, "新浪备用行情最低价不一致")
+        change_pct = round((price - prev_close) / prev_close * 100, 2)
+        return {
+            "symbol": symbol,
+            "name": name,
+            "price": price,
+            "prev_close": prev_close,
+            "change_pct": change_pct,
+            "market": self.market_for_symbol(symbol),
+            "source": "新浪财经公开行情备用源（字段一致性校验通过）",
+            "updated_at": quote_time.isoformat(),
+            "data_status": "delayed",
+            "fallback_reason": "腾讯行情不可用，已切换至经一致性校验的新浪公开行情",
         }
 
     @staticmethod

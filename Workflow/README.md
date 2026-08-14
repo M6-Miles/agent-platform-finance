@@ -9,7 +9,7 @@
 | 文件 | 用途 |
 | --- | --- |
 | `workflow.schema.json` | JSON Schema（draft 2020-12），校验下面两份定义的结构。全域 `additionalProperties: false`，字段拼错会在校验期暴露而不是被静默忽略。 |
-| `securities_analysis.workflow.json` | 证券分析工作流定义，对应 `src/agent_platform/finance/securities_graph.py` 的真实 LangGraph 图：10 个节点、14 条边、4 路并行扇出、4 条条件边、2 个人工审批中断点、checkpoint 配置。 |
+| `securities_analysis.workflow.json` | 证券分析工作流定义，对应 `src/agent_platform/finance/securities_graph.py` 的真实 LangGraph 图：12 个节点、16 条边、4 路并行扇出、5 条条件边、3 个人工审批中断点、checkpoint 配置。 |
 | `weather_analysis.workflow.json` | 天气分析工作流定义，对应 `examples/weather_analysis/`。引擎标为 `harness_sequence`（Guardrail 顺序管道，非 LangGraph 图），是平台可移植性的证据。 |
 
 加载与校验代码在 `src/agent_platform/workflow/loader.py`，测试在 `tests/test_workflow_definitions.py`。

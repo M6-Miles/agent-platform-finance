@@ -2,7 +2,7 @@
   "version": "3.1",
   "project": "通用Agent平台及证券金融分析应用",
   "updated_at": "2026-08-14",
-  "test_count": 1622,
+  "test_count": 1658,
   "_status_schema": {
     "implemented": "功能代码已实现（可单独调用/测试）",
     "integrated": "已接入主应用链路（FastAPI / 浏览器前端 / ApplicationService / 完整 Pipeline）",
@@ -169,7 +169,7 @@
       "implemented": true,
       "integrated": true,
       "acceptance_met": true,
-      "notes": "README/SPEC/状态看板/验收报告已统一；提供Scripts/start_project.ps1一键启动、requirements.lock已验证环境版本快照和完整测试入口。"
+      "notes": "README/SPEC/状态看板/验收报告已统一；提供 Scripts/start_project.ps1 一键启动、requirements.lock 已验证环境版本快照、完整测试入口，以及 deploy/ 下 Docker/Nginx/HTTPS/SQLite 备份和保留数据的服务器更新流程。重复损坏文档、协作日志、旧冒烟报告和废弃 final 别名已清理。"
     },
     {
       "id": "E-07",
@@ -187,7 +187,7 @@
       "implemented": true,
       "integrated": true,
       "acceptance_met": true,
-      "notes": "frontend_prototype.html 为单文件 Tailwind CDN 浏览器前端，包含证券分析/多股对比/Agent对话/深度投研/策略回测/模拟盘/可观测性/天气分析 8 个页面；默认调用 FastAPI http://127.0.0.1:8003。业务结果来自真实 API，后端不可达时明确报错，不以演示数据冒充在线结果；支持运行状态、请求超时提示、后台任务、长期模拟盘监控及可配置行情自动刷新。"
+      "notes": "frontend_prototype.html 为 FastAPI 提供的 HTML 主前端，Tailwind 已编译到 assets/app.css，运行时无 CDN/外部字体依赖。包含证券分析/多股对比/Agent对话/深度投研/策略回测/模拟盘/可观测性/天气分析 8 个页面；外部行情、天气、DeepSeek 分项显示状态、缓存、退避、成功率和P95。历史回放与自然日监控术语已区分，DAG 分支与节点使用中文。业务结果来自真实 API，后端不可达时明确报错，不以演示数据冒充在线结果。"
     }
   ]
 }

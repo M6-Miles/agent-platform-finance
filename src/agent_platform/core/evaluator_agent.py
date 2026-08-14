@@ -98,15 +98,12 @@ def _score_logical_consistency(output: dict[str, Any], subject: str) -> tuple[fl
     if subject == "synthesis":
         conf = output.get("confidence", -1)
         signal = output.get("signal", "hold")
-        if not (0.0 <= conf <= 1.0):
+        if not isinstance(conf, (int, float)) or not (0.0 <= conf <= 1.0):
             issues.append(f"confidence={conf} 超出 [0,1] 范围")
             score -= 40.0
-        if conf >= 0.6 and signal == "sell":
-            issues.append(f"confidence={conf:.2f} 高但 signal=sell，逻辑矛盾")
-            score -= 30.0
-        if conf <= 0.4 and signal == "buy":
-            issues.append(f"confidence={conf:.2f} 低但 signal=buy，逻辑矛盾")
-            score -= 30.0
+        if signal not in {"buy", "sell", "hold"}:
+            issues.append(f"signal={signal!r} 不在允许范围")
+            score -= 40.0
 
     elif subject == "trader":
         pos = output.get("position_pct_suggestion", -1)
@@ -117,6 +114,26 @@ def _score_logical_consistency(output: dict[str, Any], subject: str) -> tuple[fl
         if sig == "buy" and pos <= 0:
             issues.append("signal=buy 但仓位建议为 0%，逻辑可疑")
             score -= 20.0
+
+    elif subject == "risk_manager":
+        approved = output.get("approved_position_pct", -1)
+        estimated_loss = output.get("estimated_loss_pct", -1)
+        risk_budget = output.get("risk_budget_pct", -1)
+        if not isinstance(approved, (int, float)) or not (0 <= approved <= 100):
+            issues.append(f"approved_position_pct={approved} 超出 [0,100]")
+            score -= 40.0
+        if not isinstance(estimated_loss, (int, float)) or estimated_loss < 0:
+            issues.append(f"estimated_loss_pct={estimated_loss} 无效")
+            score -= 30.0
+        if (
+            isinstance(estimated_loss, (int, float))
+            and isinstance(risk_budget, (int, float))
+            and estimated_loss > risk_budget + 1e-9
+        ):
+            issues.append(
+                f"预计账户损失 {estimated_loss:.2f}% 超过风险预算 {risk_budget:.2f}%"
+            )
+            score -= 40.0
 
     return max(0.0, score), issues
 

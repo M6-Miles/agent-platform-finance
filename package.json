@@ -1,0 +1,10 @@
+{
+  "name": "agent-platform-frontend-assets",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i assets/tailwind.input.css -o assets/app.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

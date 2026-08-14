@@ -218,20 +218,20 @@ class TestOpenMeteoLocationResolution:
         provider = OpenMeteoWeatherProvider()
 
         def fake_geocode(query, count):
-            assert query == "朝阳区"
+            assert query == "通州区"
             assert count == 10
             return [
-                {"name": "朝阳区", "admin1": "吉林省", "admin2": "长春市"},
-                {"name": "朝阳区", "admin1": "北京市", "admin2": "北京市"},
+                {"name": "通州区", "admin1": "江苏省", "admin2": "南通市"},
+                {"name": "通州区", "admin1": "北京市", "admin2": "北京市"},
             ]
 
         monkeypatch.setattr(provider, "_geocode", fake_geocode)
-        location, query, is_fallback = provider._resolve_location("北京市朝阳区")
+        location, query, is_fallback = provider._resolve_location("北京市通州区")
         assert location["admin1"] == "北京市"
-        assert query == "朝阳区"
+        assert query == "通州区"
         assert is_fallback is False
 
-    def test_district_miss_falls_back_to_city_with_explicit_note(self, monkeypatch):
+    def test_known_district_miss_uses_reference_coordinates(self, monkeypatch):
         provider = OpenMeteoWeatherProvider()
         queries = []
 
@@ -259,9 +259,31 @@ class TestOpenMeteoLocationResolution:
 
         monkeypatch.setattr(provider, "_get_json", fake_json)
         forecast = provider.get_forecast("北京市朝阳区")
-        assert queries == ["朝阳区", "朝阳", "北京"]
-        assert forecast.resolved_name == "北京市"
-        assert "已回退到“北京”的城市级天气" in forecast.location_note
+        assert queries == []
+        assert forecast.resolved_name == "朝阳区"
+        assert forecast.city_name == "北京市"
+        assert forecast.district_name == "朝阳区"
+        assert forecast.latitude == 39.9219
+        assert forecast.longitude == 116.4436
+        assert "行政区中心参考坐标定位" in forecast.location_note
+
+    def test_unknown_district_still_falls_back_to_city(self, monkeypatch):
+        provider = OpenMeteoWeatherProvider()
+
+        def fake_geocode(query, count):
+            assert count == 10
+            if query == "北京":
+                return [{
+                    "name": "北京市", "admin1": "北京市", "admin2": "北京市",
+                    "country": "中国", "latitude": 39.9, "longitude": 116.4,
+                }]
+            return []
+
+        monkeypatch.setattr(provider, "_geocode", fake_geocode)
+        location, query, is_fallback = provider._resolve_location("北京市不存在区")
+        assert location["name"] == "北京市"
+        assert query == "北京"
+        assert is_fallback is True
 
     def test_agent_negative_temps(self):
         """Agent 正确处理负温度。"""
@@ -470,3 +492,10 @@ class TestFrontendIntegration:
             html = f.read()
         assert "escapeHtml(check.check_name)" in html
         assert "escapeHtml(check.message)" in html
+
+    def test_frontend_displays_non_default_location_notes(self):
+        with open("frontend_prototype.html", encoding="utf-8") as f:
+            html = f.read()
+        assert "const hasLocationNote = Boolean(" in html
+        assert "forecast.location_note !== '已按请求地点解析'" in html
+        assert "classList.toggle('hidden', !hasLocationNote)" in html

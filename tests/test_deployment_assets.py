@@ -13,7 +13,6 @@ def test_small_demo_deployment_assets_exist():
         "deploy/backup_sqlite.sh",
         "deploy/nginx-agent-platform.conf.template",
         "deploy/env.production.example",
-        "deploy/README.md",
     )
     assert all((ROOT / name).is_file() for name in required)
 

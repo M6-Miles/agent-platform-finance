@@ -823,6 +823,10 @@ def test_lg17_offline_no_network(monkeypatch):
     net_errors = [e for e in errors if any(kw in e for kw in
                   ("AkShare", "Tushare", "network", "socket", "requests", "httpx"))]
     assert not net_errors, f"offline 模式不应有任何网络错误：{net_errors}"
+    assert result["evaluator_summary"]["minimum_score"] >= 0
+    assert "evaluator_agent" in {
+        entry["node"] for entry in result.get("trace_entries", [])
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════

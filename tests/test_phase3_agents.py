@@ -170,6 +170,8 @@ class TestGenerateTradeSignal:
         result = generate_trade_signal(synthesis, regime, technical)
         assert result.stop_loss_price is not None
         assert result.stop_loss_price < 10.0
+        assert result.take_profit_price is not None
+        assert result.take_profit_price > 10.0
 
     def test_human_approval_not_raised_under_limit(self):
         synthesis = {"symbol": "000001", "signal": "buy", "confidence": 0.6}
@@ -195,14 +197,14 @@ class TestAssessRisk:
             "signal": "buy",
             "position_pct_suggestion": 5.0,
             "entry_price": 100.0,
-            "stop_loss_price": 90.0,
+            "stop_loss_price": 90.0, "take_profit_price": 120.0,
         }
         result = assess_risk(trader)
         assert isinstance(result, RiskManagerResult)
 
     def test_to_dict_has_required_keys(self):
         trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 5.0,
-                  "entry_price": 100.0, "stop_loss_price": 90.0}
+                  "entry_price": 100.0, "stop_loss_price": 90.0, "take_profit_price": 120.0}
         result = assess_risk(trader)
         d = result.to_dict()
         for req in RISK_MANAGER_SCHEMA["required"]:
@@ -210,34 +212,34 @@ class TestAssessRisk:
 
     def test_position_capped_at_max_single(self):
         trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 8.0,
-                  "entry_price": 100.0, "stop_loss_price": 90.0}
+                  "entry_price": 100.0, "stop_loss_price": 90.0, "take_profit_price": 120.0}
         result = assess_risk(trader, max_single_position_pct=2.0)
         assert result.approved_position_pct == 2.0
         assert len(result.risk_flags) > 0
 
     def test_industry_concentration_reduces_position(self):
         trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 2.0,
-                  "entry_price": 100.0, "stop_loss_price": 90.0}
+                  "entry_price": 100.0, "stop_loss_price": 90.0, "take_profit_price": 120.0}
         result = assess_risk(trader, current_industry_position_pct=29.0, max_industry_pct=30.0)
         # 当前 29% + 建议 2% = 31% > 30% → 应削减
         assert result.approved_position_pct < 2.0
 
     def test_drawdown_triggers_reduce_signal(self):
         trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 2.0,
-                  "entry_price": 100.0, "stop_loss_price": 90.0}
+                  "entry_price": 100.0, "stop_loss_price": 90.0, "take_profit_price": 120.0}
         result = assess_risk(trader, current_drawdown_pct=20.0, max_drawdown_pct=15.0)
         assert result.final_signal == "reduce"
         assert result.approved_position_pct == 0.0
 
     def test_no_risk_flags_when_all_pass(self):
         trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 1.5,
-                  "entry_price": 100.0, "stop_loss_price": 90.0}
+                  "entry_price": 100.0, "stop_loss_price": 90.0, "take_profit_price": 120.0}
         result = assess_risk(trader)
         assert len(result.risk_flags) == 0
 
     def test_loss_budget_caps_position_not_raw_position(self):
         trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 50.0,
-                  "entry_price": 100.0, "stop_loss_price": 90.0}
+                  "entry_price": 100.0, "stop_loss_price": 90.0, "take_profit_price": 120.0}
         result = assess_risk(trader)
         assert result.approved_position_pct == 20.0
         assert result.stop_distance_pct == 10.0
@@ -246,10 +248,25 @@ class TestAssessRisk:
 
     def test_missing_stop_loss_blocks_auto_position(self):
         trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 5.0,
-                  "entry_price": 100.0, "stop_loss_price": None}
+                  "entry_price": 100.0, "stop_loss_price": None, "take_profit_price": 120.0}
         result = assess_risk(trader)
         assert result.approved_position_pct == 0.0
         assert any("无法计算单笔亏损" in flag for flag in result.risk_flags)
+
+    def test_missing_take_profit_blocks_auto_position(self):
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 5.0,
+                  "entry_price": 100.0, "stop_loss_price": 90.0, "take_profit_price": None}
+        result = assess_risk(trader)
+        assert result.approved_position_pct == 0.0
+        assert any("缺少有效止盈价" in flag for flag in result.risk_flags)
+
+    def test_low_risk_reward_ratio_blocks_auto_position(self):
+        trader = {"symbol": "000001", "signal": "buy", "position_pct_suggestion": 5.0,
+                  "entry_price": 100.0, "stop_loss_price": 90.0, "take_profit_price": 110.0}
+        result = assess_risk(trader)
+        assert result.approved_position_pct == 0.0
+        assert result.risk_reward_ratio == 1.0
+        assert any("风险收益比" in flag for flag in result.risk_flags)
 
     def test_loss_budget_rejects_non_positive_limit(self):
         trader = {"symbol": "000001", "signal": "hold", "position_pct_suggestion": 0.0}
@@ -272,6 +289,9 @@ class TestTradingHarness:
             "symbol": "000001",
             "signal": "buy",
             "position_pct_suggestion": 5.0,
+            "entry_price": 100.0,
+            "stop_loss_price": 90.0,
+            "take_profit_price": 120.0,
             "rationale": "技术面向好",
             "source": "trader",
             "updated_at": "2026-01-01T00:00:00Z",
@@ -280,6 +300,9 @@ class TestTradingHarness:
         risk = {
             "symbol": "000001",
             "approved_position_pct": 5.0,
+            "stop_loss_price": 90.0,
+            "take_profit_price": 120.0,
+            "risk_reward_ratio": 2.0,
             "final_signal": "buy",
             "source": "risk_manager",
             "updated_at": "2026-01-01T00:00:00Z",
@@ -339,6 +362,21 @@ class TestTradingHarness:
         assert "回撤保护" in md
         assert "交易时段" in md
         assert "流动性" in md
+        assert "止盈止损" in md
+
+    def test_low_evaluator_score_requires_manual_review(self):
+        harness = TradingHarness()
+        synthesis, trader, risk = self._make_inputs()
+        result = harness.run_preflight(
+            synthesis, trader, risk,
+            evaluator_summary={
+                "minimum_score": 70.0,
+                "requires_manual_review": True,
+            },
+        )
+        assert result.final_action == "manual_review"
+        check = next(c for c in result.checks if c.check_name == "独立质量评估")
+        assert check.passed is False
 
     def test_execution_context_checks_trading_hours_and_liquidity(self):
         harness = TradingHarness()

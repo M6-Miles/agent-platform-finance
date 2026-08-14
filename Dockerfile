@@ -15,12 +15,14 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY frontend_prototype.html ./
+COPY assets ./assets
 COPY Workflow ./Workflow
 COPY Rule ./Rule
 COPY Skill ./Skill
 COPY SubAgents ./SubAgents
 COPY MCP ./MCP
 COPY data/sample ./data/sample
+COPY data/reference ./data/reference
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install ".[akshare,llm]"

@@ -8,7 +8,9 @@
 
 ### Web 应用
 - **HTML 主前端**：由 FastAPI 在根路径提供，包含证券分析、多股对比、Agent 对话、深度投研、策略回测、模拟盘、可观测性和天气分析
+- **工作流拓扑图**：由后端校验后的 Workflow JSON 动态生成，展示并行节点、条件分支、人工审批、Evaluator 与实时执行状态，支持移动端横向查看
 - **FastAPI 后端**：提供认证、健康检查、证券分析、工作流、会话、模拟盘、天气与管理接口
+- **外部服务状态**：页面分别显示公开行情、Open-Meteo 和 DeepSeek 的可用状态、最近成功时间、缓存与退避信息
 - **HTTPS 部署**：生产或对外演示时通过 Nginx 与 TLS 证书提供 HTTPS；本机 `127.0.0.1` 可直接使用 HTTP
 - **Mock Agent**：离线可预测，不调用任何外部大模型
 
@@ -21,7 +23,7 @@
 - **趋势类**：MA5、MA20、EMA、布林带（上/中/下轨 + 位置百分比）
 - **动量类**：MACD（DIF/DEA/柱状图）、RSI(14)、KDJ(K/D/J)
 - **波动类**：ATR(14)、CCI(20)、年化波动率
-- **收益类**：区间收益率、最大回撤、Sharpe 比率
+- **收益类**：区间收益率、最大回撤、Sharpe 比率；策略回测另提供平均盈利、平均亏损、整体盈亏比、Profit Factor，以及同区间买入并持有基准
 - **图表**：K线蜡烛图 + MA双线 + 布林带区域、MACD柱状图、KDJ三线、RSI超买/超卖带
 
 ### 多股对比
@@ -38,7 +40,7 @@
 - 连续对话上下文（Agent 加载历史消息）
 
 ### 测试覆盖
-- **1622 项测试收集，1621 项通过、1 项跳过、0 失败**（2026-08-14 实测）。准确数量仍以 `python -m pytest --collect-only` 的当前输出为准。测试覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、真实 LLM 回放框架与天气 Demo。
+- **1658 项测试收集，1657 项通过、1 项跳过、0 失败**（2026-08-14 实测）。准确数量仍以 `python -m pytest --collect-only` 的当前输出为准。测试覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、报告导出、真实 LLM 回放框架与天气 Demo。
 
 ## 2. 项目不会做什么
 
@@ -432,18 +434,18 @@ rm data/app.sqlite3
 
 下次启动时，应用会自动创建一个新的空数据库。内置行情文件 `data/sample/prices.csv` 不会被删除。
 
-## 13. 后续可扩展方向
+## 13. 交付、部署与后续扩展
 
-第一版故意保持简单。后续可以逐步增加：
+当前版本已经具备登录鉴权、管理员与普通用户隔离、Docker 单机部署、Nginx 反向代理、HTTPS 配置模板、SQLite 备份、Provider 健康检查和本地静态资源。项目只保留一套 FastAPI 后端和一个 HTML 主前端；`Rule/`、`Skill/`、`Workflow/`、`MCP/`、`SubAgents/`、测试和实验原始证据属于任务书验收内容，不是重复代码。
 
-- 接入真实 Claude 或其他大模型。
-- 接入 AkShare、Tushare 或企业数据源。
-- 增加 MCP 工具。
-- 增加 PostgreSQL、登录、权限和多用户。
-- 增加 Docker 部署。
-- 增加更多金融指标和报告生成。
+交付时不要上传 `.env`、`.env.production`、`.venv/`、SQLite 数据库、日志、缓存、`node_modules/` 或本地压缩包。这些内容已被 `.gitignore` 和 `.dockerignore` 排除。权威文档入口如下：
 
-这些扩展会涉及真实 API Key、网络访问、可能的费用和更多安全要求，需要单独确认后再做。
+- 项目运行、功能和验收说明：本 `README.md`。
+- 当前真实完成状态：`PROJECT_STATUS.md`。
+- 原始任务书与验收定义：`SPEC.md` 和 `docs/构建通用Agent平台及证券金融分析应用.docx`。
+- 面向导师的总结和零基础说明：`docs/项目总结文档.docx`、`docs/项目小白说明文档.docx`。
+
+仍值得继续扩展的内容包括 PostgreSQL 多实例部署、Redis 分布式限流、集中式密钥管理、更多数据源以及更长时间的真实行情与模型稳定性证据。这些扩展涉及网络、费用和运维复杂度，需要单独评审。
 
 ---
 
@@ -553,7 +555,7 @@ result = resume_securities_analysis("approve", thread_id="my-analysis-001", grap
 
 ### 14.4 Pre-Flight Checklist（交易前门卫）
 
-`src/agent_platform/finance/trading_harness.py` 实现 9 项前置检查：
+`src/agent_platform/finance/trading_harness.py` 实现 10 项前置检查：
 
 1. 数据质量决策（真实、离线、降级和不可用状态）
 2. 数据溯源（source / updated_at 完整性）
@@ -564,15 +566,16 @@ result = resume_securities_analysis("approve", thread_id="my-analysis-001", grap
 7. 回撤保护（final_signal ≠ "reduce"）
 8. A 股交易时段（Asia/Shanghai 工作日 09:30-11:30、13:00-15:00）
 9. 流动性（最新成交量 × 收盘价的日成交额代理值，缺失时进入人工复核）
+10. 独立质量评估（Synthesis、Trader、Risk Manager 最低评分需达到 80）
 
 ### 14.5 工程层（Phase 4）
 
 | 组件 | 文件 | 说明 |
 |------|------|------|
-| 回测引擎 | `finance/backtesting.py` | Sharpe / 最大回撤 / 胜率 / 滑点 0.1% + 佣金 0.03% |
+| 回测引擎 | `finance/backtesting.py` | Sharpe / 最大回撤 / 胜率 / 平均盈亏 / 整体盈亏比 / Profit Factor / 滑点 0.1% + 佣金 0.03% |
 | 可观测面板 | `core/observability.py` | SQLite 持久化；真实供应商 Token usage / 延迟 P50/P95 / Guardrail 触发率；`GET /observability` |
-| Evaluator Agent | `core/evaluator_agent.py` | 数据完整性 + 逻辑一致性 + 违禁词 三维评分 0–100 |
-| MockBroker | `finance/mock_broker.py` | 本地纸面交易：限价单 / 市价单 / 撮合 / 持仓盈亏 |
+| Evaluator Agent | `core/evaluator_agent.py` | 数据完整性 + 逻辑一致性 + 违禁词三维评分 0–100；已接入 LangGraph 主链、Pre-Flight 与可观测 trace |
+| MockBroker | `finance/mock_broker.py` | 本地纸面交易：限价单 / 市价单 / 撮合 / 持仓盈亏 / 止损止盈自动平仓；不连接真实券商 |
 | 长期模拟盘监控 | `finance/paper_trading_monitor.py` | 每日采集、SQLite 快照、跨重启恢复、同日幂等；不连接真实券商 |
 | 幻觉率实验 | `core/harness_experiment.py` | 固定 Mock 评测集 Harness ON/OFF 对比；不得解释为真实 LLM 提升比例 |
 
@@ -654,10 +657,18 @@ python examples/weather_analysis/run_demo.py
 
 ### 14.9 HTML 前端原型（frontend_prototype.html）
 
-`frontend_prototype.html` 是主前端，由 FastAPI 在根路径提供。它用 Tailwind CDN 实现，
-不需要 Node / npm / 构建步骤，包含 8 个视图：证券分析 / 多股对比 / Agent 对话 /
+`frontend_prototype.html` 是主前端，由 FastAPI 在根路径提供。Tailwind CSS 已编译到
+`assets/app.css`，运行时不依赖 CDN 或外部字体，断网仍能显示完整布局。交付包已包含构建结果，
+普通使用者不需要 Node / npm。页面包含 8 个视图：证券分析 / 多股对比 / Agent 对话 /
 深度投研 / 策略回测 / 模拟盘 / 可观测性 / 天气分析。业务功能必须通过 FastAPI 使用，
 不建议直接双击 HTML 文件。
+
+开发者修改 Tailwind 类名后可重新生成 CSS：
+
+```bash
+npm install
+npm run build:css
+```
 
 两种数据模式（侧边栏切换）：
 
@@ -674,6 +685,17 @@ python examples/weather_analysis/run_demo.py
 ```
 
 后端不可达或联网数据获取失败时，页面会明确报错；系统不会把样例数据冒充联网结果。
+公开行情连续失败时采用指数退避，并在 15 分钟内允许使用明确标记时间的最近成功缓存；
+Open-Meteo 使用 5 分钟新鲜缓存和最多 6 小时的故障缓存。腾讯行情失败后仅在新浪公开
+行情通过代码、价格、昨收、最高价和最低价一致性校验时切换备用源。
+前端预置区县在 Open-Meteo 地名库缺失精确候选时使用省、市、区联合键约束的行政区中心
+参考坐标定位；天气数据仍来自 Open-Meteo，并在页面明确显示定位说明。
+
+推荐使用启动脚本，它会验证端口上的旧进程确属本项目后再关闭，并执行后端与 Provider 自检：
+
+```powershell
+.\Scripts\start_project.ps1
+```
 
 > 已知限制：请勿加 `--reload`。`--reload` 下 uvicorn 用 `sys.executable` spawn worker
 > 进程，在部分 Windows 环境会解析到系统 Python 而非 `.venv`，导致 `/quote/{symbol}`

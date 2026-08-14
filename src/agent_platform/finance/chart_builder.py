@@ -31,7 +31,7 @@ def _base_layout(height: int = 380, **overrides) -> dict:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(248,249,251,0.55)",
         font=dict(family=_FONT, size=12, color="#1a2332"),
-        margin=dict(l=52, r=18, t=32, b=40),
+        margin=dict(l=52, r=84, t=52, b=44),
         hovermode="x unified",
         hoverlabel=dict(
             bgcolor="white", bordercolor=_C_AXIS,
@@ -138,9 +138,11 @@ def make_rsi_fig(df: pd.DataFrame) -> go.Figure:
     fig.add_hrect(y0=70, y1=100, fillcolor="rgba(232,64,64,0.07)",  line_width=0)
     fig.add_hrect(y0=0,  y1=30,  fillcolor="rgba(44,160,44,0.07)", line_width=0)
     fig.add_hline(y=70, line=dict(color=_C_UP,   width=1, dash="dot"),
-                  annotation_text="超买 70", annotation_position="right")
+                  annotation_text="超买 70", annotation_position="right",
+                  annotation_font=dict(size=11, color=_C_UP))
     fig.add_hline(y=30, line=dict(color=_C_DOWN, width=1, dash="dot"),
-                  annotation_text="超卖 30", annotation_position="right")
+                  annotation_text="超卖 30", annotation_position="right",
+                  annotation_font=dict(size=11, color=_C_DOWN))
     fig.add_trace(go.Scatter(
         x=x, y=df["rsi"],
         line=dict(color=_C_SIGNAL, width=1.8), name="RSI(14)",
@@ -161,9 +163,11 @@ def make_kdj_fig(df: pd.DataFrame) -> go.Figure:
     fig.add_hrect(y0=80,  y1=110, fillcolor="rgba(232,64,64,0.07)",  line_width=0)
     fig.add_hrect(y0=-10, y1=20,  fillcolor="rgba(44,160,44,0.07)", line_width=0)
     fig.add_hline(y=80, line=dict(color=_C_UP,   width=1, dash="dot"),
-                  annotation_text="超买 80", annotation_position="right")
+                  annotation_text="超买 80", annotation_position="right",
+                  annotation_font=dict(size=11, color=_C_UP))
     fig.add_hline(y=20, line=dict(color=_C_DOWN, width=1, dash="dot"),
-                  annotation_text="超卖 20", annotation_position="right")
+                  annotation_text="超卖 20", annotation_position="right",
+                  annotation_font=dict(size=11, color=_C_DOWN))
     fig.add_trace(go.Scatter(
         x=x, y=df["kdj_k"],
         line=dict(color=_C_MA5, width=1.6), name="K",

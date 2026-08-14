@@ -51,12 +51,11 @@ def test_enterprise100_atomically_publishes_all_canonical_names(tmp_path: Path) 
         json_path=json_path, md_path=md_path, project_root=tmp_path,
     )
     names = {path.name for path in published}
-    for stem in ("latest_attempt", "latest", "final"):
+    for stem in ("latest_attempt", "latest"):
         assert f"real_llm_replay_deepseek_{stem}.json" in names
         assert f"real_llm_replay_deepseek_{stem}.md" in names
-    assert "deprecated_alias" in (
-        tmp_path / "docs" / "experiments" / "real_llm_replay_deepseek_final.json"
-    ).read_text(encoding="utf-8")
+    assert not (tmp_path / "docs" / "experiments" / "real_llm_replay_deepseek_final.json").exists()
+    assert not (tmp_path / "docs" / "experiments" / "real_llm_replay_deepseek_final.md").exists()
     latest = json.loads(
         (tmp_path / "docs" / "experiments" / "real_llm_replay_deepseek_latest.json")
         .read_text(encoding="utf-8")

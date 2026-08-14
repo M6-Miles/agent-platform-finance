@@ -20,6 +20,7 @@ from agent_platform.core.harness import (
 )
 from agent_platform.core.llm_provider import ChatMessage, LLMProviderError
 from agent_platform.core.observability import ObservabilityPanel
+from agent_platform.core.provider_health import ProviderHealthRegistry
 from agent_platform.finance.analysis import SecurityAnalysisResult, analyze_security
 from agent_platform.finance.constants import DISCLAIMER
 from agent_platform.finance.data_status import normalize_data_mode
@@ -182,20 +183,34 @@ class ApplicationService:
         chat_rate_limit_per_minute: int = 20,
     ) -> None:
         self.settings = settings or get_settings()
+        self.provider_health = ProviderHealthRegistry()
+        self.provider_health.configure("market_quote", True)
+        self.provider_health.configure("open_meteo", True)
+        self.provider_health.configure("database", True)
+        deepseek_configured = bool(self.settings.deepseek_api_key)
+        self.provider_health.configure(
+            "deepseek",
+            deepseek_configured,
+            status="configured_not_probed" if deepseek_configured else "not_configured",
+        )
         self.store = store or SQLiteStore(self.settings.sqlite_path)
         from agent_platform.finance.paper_broker_service import PaperBrokerService
 
-        self.paper_broker = PaperBrokerService(self.settings.sqlite_path)
+        self.paper_broker = PaperBrokerService(
+            self.settings.sqlite_path, provider_health=self.provider_health
+        )
         self._fundamental_chat_cache: dict[tuple[str, bool], tuple[float, object]] = {}
         self._fundamental_chat_cache_lock = threading.Lock()
         self.observability = ObservabilityPanel(self.settings.sqlite_path)
         from agent_platform.finance.paper_trading_monitor import PaperTradingMonitor
+        from agent_platform.finance.trading_calendar import ChinaAStockCalendar
 
         self.paper_monitor = PaperTradingMonitor(
             self.settings.sqlite_path,
             self.paper_broker,
             poll_interval_s=self.settings.paper_monitor_poll_interval_s,
             configured_enabled=self.settings.paper_monitor_enabled,
+            calendar=ChinaAStockCalendar(),
         )
         if self.settings.paper_monitor_enabled:
             self.paper_monitor.start()

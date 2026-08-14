@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 TRADER_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": [
-        "symbol", "signal", "position_pct_suggestion",
+        "symbol", "signal", "position_pct_suggestion", "take_profit_price",
         "rationale", "source", "updated_at", "disclaimer"
     ],
     "properties": {
@@ -29,6 +29,7 @@ TRADER_SCHEMA: dict[str, Any] = {
         "target_price_high": {},
         "entry_price": {},
         "stop_loss_price": {},
+        "take_profit_price": {},
         "position_pct_suggestion": {"type": "number", "minimum": 0, "maximum": 100},
         "rationale": {"type": "string"},
         "source": {"type": "string"},
@@ -61,6 +62,7 @@ class TraderResult:
     target_price_high: float | None
     entry_price: float | None
     stop_loss_price: float | None
+    take_profit_price: float | None
     position_pct_suggestion: float   # 0–100（受 _MAX_AUTO_POSITION_PCT 约束）
     rationale: str
     source: str
@@ -75,6 +77,7 @@ class TraderResult:
             "target_price_high": self.target_price_high,
             "entry_price": self.entry_price,
             "stop_loss_price": self.stop_loss_price,
+            "take_profit_price": self.take_profit_price,
             "position_pct_suggestion": self.position_pct_suggestion,
             "rationale": self.rationale,
             "source": self.source,
@@ -90,11 +93,13 @@ class TraderResult:
             else "N/A"
         )
         sl = f"{self.stop_loss_price:.2f}" if self.stop_loss_price is not None else "N/A"
+        take_profit = f"{self.take_profit_price:.2f}" if self.take_profit_price is not None else "N/A"
         return "\n".join([
             f"### {self.symbol} 交易建议",
             f"- 信号：{signal_emoji.get(self.signal, self.signal)}",
             f"- 目标价区间：{tp}",
             f"- 止损价：{sl}",
+            f"- 止盈价：{take_profit}",
             f"- 建议仓位：{self.position_pct_suggestion:.1f}%",
             f"- 理由：{self.rationale}",
             "",
@@ -139,6 +144,7 @@ def generate_trade_signal(
 
     # 止损价：若有技术数据，利用 ATR（若无则取收盘价 × 0.93）
     stop_loss: float | None = None
+    take_profit: float | None = None
     close = None
     if technical:
         close = technical.get("latest_close")
@@ -147,6 +153,13 @@ def generate_trade_signal(
             stop_loss = round(close - 2.0 * atr, 2)
         elif close:
             stop_loss = round(close * 0.93, 2)
+
+    if signal == "buy" and close and stop_loss and stop_loss < close:
+        risk_distance = float(close) - stop_loss
+        target_candidate = float(tgt_high) if tgt_high is not None else 0.0
+        take_profit = round(
+            max(target_candidate, float(close) + 1.5 * risk_distance), 2
+        )
 
     position = _calc_position(signal, confidence, regime_str)
 
@@ -164,6 +177,7 @@ def generate_trade_signal(
         target_price_high=tgt_high,
         entry_price=float(close) if close else None,
         stop_loss_price=stop_loss,
+        take_profit_price=take_profit,
         position_pct_suggestion=position,
         rationale=rationale,
         source="trader",

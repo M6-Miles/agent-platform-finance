@@ -78,6 +78,7 @@ class Order:
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
     filled_at: Optional[str] = None
     reject_reason: Optional[str] = None
+    trigger_reason: Optional[str] = None
 
 
 @dataclass
@@ -86,6 +87,8 @@ class Position:
     quantity: int
     avg_cost: float
     current_price: float = 0.0
+    stop_loss_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
 
     @property
     def market_value(self) -> float:
@@ -201,7 +204,38 @@ class MockBroker:
             self._try_fill(order, market_price)
             if order.status == OrderStatus.FILLED:
                 filled.append(order)
+        protective = self._trigger_protective_exit(symbol, market_price)
+        if protective is not None:
+            filled.append(protective)
         return filled
+
+    def set_position_protection(
+        self, symbol: str, *, stop_loss_price: float, take_profit_price: float
+    ) -> None:
+        """为本地模拟持仓设置保护价，不连接任何真实交易系统。"""
+        position = self._positions.get(symbol)
+        if position is None:
+            raise ValueError(f"无法为无持仓证券设置保护价: {symbol}")
+        if not (0 < stop_loss_price < position.avg_cost < take_profit_price):
+            raise ValueError("保护价必须满足 0 < 止损价 < 持仓均价 < 止盈价")
+        position.stop_loss_price = float(stop_loss_price)
+        position.take_profit_price = float(take_profit_price)
+
+    def _trigger_protective_exit(self, symbol: str, market_price: float) -> Order | None:
+        position = self._positions.get(symbol)
+        if position is None:
+            return None
+        reason: str | None = None
+        if position.stop_loss_price is not None and market_price <= position.stop_loss_price:
+            reason = "stop_loss"
+        elif position.take_profit_price is not None and market_price >= position.take_profit_price:
+            reason = "take_profit"
+        if reason is None:
+            return None
+        order = self.place_market_order(symbol, OrderSide.SELL, position.quantity)
+        order.trigger_reason = reason
+        self._try_fill(order, market_price)
+        return order if order.status == OrderStatus.FILLED else None
 
     def _try_fill(self, order: Order, market_price: float) -> None:
         """尝试撮合单笔订单。"""
@@ -255,6 +289,7 @@ class MockBroker:
             "quantity_unit": QUANTITY_UNIT,
             "exec_price": exec_price,
             "commission": commission,
+            "trigger_reason": order.trigger_reason,
             "timestamp": order.filled_at,
         })
         logger.info("Order filled %s @ %.2f × %d", order.order_id, exec_price, order.quantity)
@@ -268,6 +303,9 @@ class MockBroker:
             pos.quantity += qty
             pos.avg_cost = total_cost / pos.quantity
             pos.current_price = price
+            # 加仓会改变成本基准，旧保护价不再可靠；调用方可在成交后重新设置。
+            pos.stop_loss_price = None
+            pos.take_profit_price = None
         else:
             self._positions[symbol] = Position(
                 symbol=symbol, quantity=qty, avg_cost=price, current_price=price
@@ -338,6 +376,7 @@ class MockBroker:
                     "created_at": order.created_at,
                     "filled_at": order.filled_at,
                     "reject_reason": order.reject_reason,
+                    "trigger_reason": order.trigger_reason,
                 }
                 for order in self._orders.values()
             ],
@@ -347,6 +386,8 @@ class MockBroker:
                     "quantity": position.quantity,
                     "avg_cost": position.avg_cost,
                     "current_price": position.current_price,
+                    "stop_loss_price": position.stop_loss_price,
+                    "take_profit_price": position.take_profit_price,
                 }
                 for position in self._positions.values()
             ],
@@ -377,6 +418,7 @@ class MockBroker:
                 created_at=str(raw["created_at"]),
                 filled_at=raw.get("filled_at"),
                 reject_reason=raw.get("reject_reason"),
+                trigger_reason=raw.get("trigger_reason"),
             )
             broker._orders[order.order_id] = order
         for raw in state.get("positions", []):
@@ -385,6 +427,8 @@ class MockBroker:
                 quantity=int(raw["quantity"]),
                 avg_cost=float(raw["avg_cost"]),
                 current_price=float(raw.get("current_price", 0.0)),
+                stop_loss_price=raw.get("stop_loss_price"),
+                take_profit_price=raw.get("take_profit_price"),
             )
             broker._positions[position.symbol] = position
         broker._trade_history = [dict(item) for item in state.get("trade_history", [])]

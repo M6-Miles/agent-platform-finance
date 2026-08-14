@@ -87,7 +87,7 @@
         },
         "error": null
       },
-      "next_run_at": "2026-08-14T15:10:00+08:00",
+      "next_run_at": "2026-08-17T15:10:00+08:00",
       "calendar_basis": "weekday_candidate_only"
     }
   },
@@ -146,7 +146,7 @@
       "broker_kind": "MockBroker(本地模拟撮合，无券商连接)"
     },
     "error": null,
-    "deduplicated": false
+    "deduplicated": true
   },
   "honesty_note": "离线、降级、失败、非交易日和同日重复运行均不增加有效证据天数"
 }

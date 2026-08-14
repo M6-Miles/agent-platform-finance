@@ -125,3 +125,16 @@ class TestHtmlExport:
         html = data.decode("utf-8")
         # Plotly 图表输出要么包含 <script> 要么包含 <div class="plotly
         assert ("<script>" in html) or ("plotly" in html.lower())
+
+    def test_chart_titles_are_separate_from_plot_legends(self) -> None:
+        html = to_html_bytes(_make_result()).decode("utf-8")
+        assert "<h3>K线、均线与布林带</h3>" in html
+        assert "<h3>MACD（12/26/9）</h3>" in html
+        assert "<h3>KDJ（9/3/3）</h3>" in html
+        assert "<h3>RSI（14）</h3>" in html
+        assert "margin\":{\"l\":52,\"r\":84" in html
+
+    def test_html_export_embeds_plotly_for_offline_viewing(self) -> None:
+        html = to_html_bytes(_make_result()).decode("utf-8")
+        assert '<script src="https://cdn.plot.ly' not in html
+        assert "plotly.js v" in html

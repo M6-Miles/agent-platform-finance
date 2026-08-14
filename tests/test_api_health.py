@@ -34,6 +34,69 @@ def test_health_endpoint(tmp_path, monkeypatch) -> None:
     assert response.json()["storage"] == "sqlite"
 
 
+def test_openapi_schema_includes_analysis_export(tmp_path, monkeypatch) -> None:
+    client = build_client(tmp_path, monkeypatch)
+
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    assert "/analysis/{symbol}/export" in response.json()["paths"]
+
+
+def test_provider_health_is_explicit_and_does_not_call_paid_llm(tmp_path, monkeypatch) -> None:
+    client = build_client(tmp_path, monkeypatch)
+
+    response = client.get("/health/providers")
+
+    assert response.status_code == 200
+    providers = response.json()["providers"]
+    assert {"market_quote", "open_meteo", "deepseek"} <= providers.keys()
+    assert providers["deepseek"]["status"] in {"not_configured", "configured_not_probed"}
+    assert "retry_after_s" in providers["market_quote"]
+
+
+def test_local_frontend_css_is_served_without_cdn(tmp_path, monkeypatch) -> None:
+    client = build_client(tmp_path, monkeypatch)
+
+    page = client.get("/")
+    css = client.get("/assets/app.css")
+
+    assert page.status_code == 200
+    assert 'href="/assets/app.css"' in page.text
+    assert "cdn.tailwindcss.com" not in page.text
+    assert "fonts.googleapis.com" not in page.text
+    assert css.status_code == 200
+    assert len(css.text) > 10_000
+
+
+def test_analysis_export_endpoints_return_downloads(tmp_path, monkeypatch) -> None:
+    client = build_client(tmp_path, monkeypatch)
+    params = {
+        "start": "2025-01-02",
+        "end": "2025-12-31",
+        "data_mode": "offline",
+    }
+
+    excel = client.get("/analysis/DEMO001/export", params={**params, "format": "xlsx"})
+    assert excel.status_code == 200
+    assert excel.content.startswith(b"PK")
+    assert "security_analysis_DEMO001" in excel.headers["content-disposition"]
+
+    html = client.get("/analysis/DEMO001/export", params={**params, "format": "html"})
+    assert html.status_code == 200
+    assert "<!DOCTYPE html>" in html.text
+    assert "plotly" in html.text.lower()
+    assert "security_analysis_DEMO001" in html.headers["content-disposition"]
+
+
+def test_frontend_report_buttons_are_wired() -> None:
+    page = main._HTML_FILE.read_text(encoding="utf-8")
+    assert "onclick=\"downloadAnalysisReport('xlsx', this)\"" in page
+    assert "onclick=\"downloadAnalysisReport('html', this)\"" in page
+    assert 'id="provider-health-refresh-btn"' in page
+    assert "button.textContent = '检查中…'" in page
+
+
 def test_observability_api_is_persistent_and_resettable(tmp_path, monkeypatch) -> None:
     client = build_client(tmp_path, monkeypatch)
     service = main.get_application_service()

@@ -8,9 +8,11 @@ idempotent.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import threading
 import logging
+from collections import deque
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -44,6 +46,7 @@ class PaperTradingMonitor:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._instance_id = str(uuid4())
+        self._scheduler_alerts: deque[dict[str, str]] = deque(maxlen=20)
         self.initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -302,8 +305,61 @@ class PaperTradingMonitor:
             "current_time": _local_now().isoformat(timespec="seconds"),
             "job_count": len(self.list_jobs()),
             "calendar_basis": self.calendar.name,
-            "calendar_authoritative": self.calendar.authoritative,
-            "calendar_limitation": None if self.calendar.authoritative else "未接入交易所节假日日历，法定工作日仅作为候选交易日",
+            "calendar_authoritative": self.calendar.is_authoritative_for(_local_now().date()),
+            "calendar_limitation": (
+                None if self.calendar.is_authoritative_for(_local_now().date())
+                else "当前日期超出本地交易所日历覆盖范围，工作日仅作为候选交易日"
+            ),
+            "calendar_metadata": (
+                self.calendar.metadata() if hasattr(self.calendar, "metadata") else {}
+            ),
+            "metrics": self._operational_metrics(),
+        }
+
+    def _operational_metrics(self) -> dict[str, Any]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT trading_date, status, snapshot_json, error, started_at, finished_at "
+                "FROM paper_monitor_runs ORDER BY started_at DESC LIMIT 500"
+            ).fetchall()
+        attempted = succeeded = cache_hits = 0
+        durations_ms: list[float] = []
+        alerts: list[dict[str, str]] = []
+        for row in rows:
+            snapshot = json.loads(row["snapshot_json"]) if row["snapshot_json"] else {}
+            quotes = snapshot.get("quotes") or {}
+            errors = snapshot.get("quote_errors") or {}
+            symbols = snapshot.get("symbols") or sorted(set(quotes) | set(errors))
+            attempted += len(symbols)
+            succeeded += len(quotes)
+            cache_hits += sum(bool(value.get("quote_cache_hit")) for value in quotes.values())
+            if row["started_at"] and row["finished_at"]:
+                try:
+                    elapsed = (
+                        datetime.fromisoformat(row["finished_at"])
+                        - datetime.fromisoformat(row["started_at"])
+                    ).total_seconds() * 1000
+                    durations_ms.append(max(0.0, elapsed))
+                except ValueError:
+                    pass
+            if row["status"] in {"failed", "partial"} and len(alerts) < 20:
+                alerts.append({
+                    "date": row["trading_date"],
+                    "level": "error" if row["status"] == "failed" else "warning",
+                    "message": row["error"] or f"{len(errors)} 个标的行情获取失败",
+                })
+        ordered = sorted(durations_ms)
+        p95 = ordered[math.ceil(len(ordered) * 0.95) - 1] if ordered else 0.0
+        return {
+            "runs": len(rows),
+            "symbol_attempts": attempted,
+            "symbol_successes": succeeded,
+            "symbol_failures": max(0, attempted - succeeded),
+            "market_success_rate_pct": round(succeeded / attempted * 100, 1) if attempted else 0.0,
+            "cache_hits": cache_hits,
+            "cache_hit_rate_pct": round(cache_hits / succeeded * 100, 1) if succeeded else 0.0,
+            "run_latency_p95_ms": round(p95, 1),
+            "alerts": list(self._scheduler_alerts) + alerts,
         }
 
     def start(self) -> None:
@@ -315,16 +371,26 @@ class PaperTradingMonitor:
         # unique (job_id, trading_date) constraint keeps this idempotent.
         try:
             self.run_due()
-        except Exception:
+        except Exception as exc:
+            self._scheduler_alerts.appendleft({
+                "date": _local_now().date().isoformat(),
+                "level": "error",
+                "message": f"调度器启动补采失败（{type(exc).__name__}）",
+            })
             logger.exception("paper monitor startup catch-up failed")
 
         def worker() -> None:
             while not self._stop.wait(self.poll_interval_s):
                 try:
                     self.run_due()
-                except Exception:
+                except Exception as exc:
                     # Individual runs persist their own failure. A scheduler-level
                     # fault must not permanently kill the daemon thread.
+                    self._scheduler_alerts.appendleft({
+                        "date": _local_now().date().isoformat(),
+                        "level": "error",
+                        "message": f"调度轮询失败（{type(exc).__name__}）",
+                    })
                     logger.exception("paper monitor scheduler iteration failed")
                     continue
 
@@ -390,7 +456,7 @@ class PaperTradingMonitor:
                 "evidence_status": evidence_status,
                 "latest_run": runs[0] if runs else None,
                 "next_run_at": next_run,
-                "calendar_basis": "weekday_candidate_only",
+                "calendar_basis": self.calendar.name,
             },
         }
 
@@ -426,14 +492,13 @@ class PaperTradingMonitor:
             for quote in quotes.values()
         )
 
-    @staticmethod
-    def _next_run_at(run_time: str) -> str:
+    def _next_run_at(self, run_time: str) -> str:
         now = _local_now()
         hour, minute = (int(part) for part in run_time.split(":"))
         candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if candidate <= now:
             candidate += timedelta(days=1)
-        while candidate.weekday() >= 5:
+        while not self.calendar.is_trading_day(candidate.date()):
             candidate += timedelta(days=1)
         return candidate.isoformat(timespec="seconds")
 

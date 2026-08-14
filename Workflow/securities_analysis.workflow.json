@@ -33,6 +33,7 @@
       { "name": "har_required", "description": "True 表示 HumanApprovalRequired 已触发。" },
       { "name": "har_detail", "description": "触发人工审批时的异常消息。" },
       { "name": "risk_result", "description": "风控审核结果字典。" },
+      { "name": "evaluator_summary", "description": "对综合研判、交易建议和风控结果的独立质量评分汇总。" },
       { "name": "preflight_result", "description": "Pre-Flight Checklist 结果字典。" },
       { "name": "status", "description": "工作流状态机字段。" },
       { "name": "final_action", "description": "execute / block / manual_review。" },
@@ -181,13 +182,23 @@
       "on_error": "record_and_continue"
     },
     {
+      "id": "evaluator_agent",
+      "title": "独立质量评估",
+      "type": "agent",
+      "description": "独立评估 Synthesis、Trader 与 Risk Manager 输出；最低分低于 80 时交由 Pre-Flight 进入人工复核。",
+      "implementation": "agent_platform.finance.securities_graph:node_evaluator_agent",
+      "requires": ["synthesis", "trade_signal", "risk_result"],
+      "produces": ["evaluator_summary", "trace_entries"],
+      "on_error": "record_and_continue"
+    },
+    {
       "id": "trading_harness",
       "title": "Pre-Flight Checklist",
       "type": "gate",
       "description": "交易前置检查，产出 execute / block / manual_review。manual_review 时以 interrupt() 暂停等待人工裁决。",
       "implementation": "agent_platform.finance.securities_graph:node_trading_harness",
       "interrupts": true,
-      "requires": ["synthesis", "trade_signal", "risk_result", "symbol"],
+      "requires": ["synthesis", "trade_signal", "risk_result", "evaluator_summary", "symbol"],
       "produces": ["preflight_result", "final_action", "status", "errors", "trace_entries"],
       "on_error": "structured_error",
       "notes": "interrupt() 必须写在 try/except 之外：GraphInterrupt 是 Exception 子类，被 except Exception 捕获会导致中断静默失效。"
@@ -300,7 +311,8 @@
         }
       ]
     },
-    { "from": "risk_manager", "to": "trading_harness", "type": "direct", "description": "风控通过后进入前置检查。" },
+    { "from": "risk_manager", "to": "evaluator_agent", "type": "direct", "description": "风控输出进入独立质量评估。" },
+    { "from": "evaluator_agent", "to": "trading_harness", "type": "direct", "description": "质量评分随交易建议进入前置检查。" },
     {
       "from": "trading_harness",
       "type": "conditional",

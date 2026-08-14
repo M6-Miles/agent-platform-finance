@@ -8,6 +8,7 @@ Phase 4 组件测试：
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 from datetime import date
 
 from agent_platform.finance.backtesting import run_backtest
@@ -94,6 +95,46 @@ def test_backtest_win_rate():
     assert result.win_rate_pct > 90.0  # 3/3 wins
 
 
+def test_backtest_profit_loss_ratio_uses_completed_trade_returns():
+    """盈亏比按逐笔收益率计算，不改变净值或 Sharpe 口径。"""
+    dates = pd.date_range("2024-01-01", periods=8, freq="D").date
+    df = pd.DataFrame({
+        "date": dates,
+        "open": [100, 100, 110, 110, 99, 99, 108.9, 108.9],
+        "close": [100, 100, 110, 110, 99, 99, 108.9, 108.9],
+    })
+    signals = {
+        dates[0]: "buy", dates[1]: "sell",
+        dates[2]: "buy", dates[3]: "sell",
+        dates[4]: "buy", dates[5]: "sell",
+    }
+    result = run_backtest(
+        "TEST", df, signals, slippage_pct=0.0, commission_pct=0.0
+    )
+
+    returns = [trade.return_pct for trade in result.trades]
+    wins = [value for value in returns if value > 0]
+    losses = [value for value in returns if value < 0]
+    expected_avg_win = sum(wins) / len(wins)
+    expected_avg_loss = abs(sum(losses) / len(losses))
+
+    assert result.avg_win_pct == pytest.approx(expected_avg_win)
+    assert result.avg_loss_pct == pytest.approx(expected_avg_loss)
+    assert result.profit_loss_ratio == pytest.approx(expected_avg_win / expected_avg_loss)
+    assert result.profit_factor == pytest.approx(sum(wins) / abs(sum(losses)))
+
+
+def test_backtest_profit_loss_ratio_is_none_without_both_sides():
+    dates = pd.date_range("2024-02-01", periods=5, freq="D").date
+    df = pd.DataFrame({"date": dates, "close": [100, 101, 102, 103, 104]})
+    result = run_backtest("TEST", df, {})
+
+    assert result.avg_win_pct == 0.0
+    assert result.avg_loss_pct == 0.0
+    assert result.profit_loss_ratio is None
+    assert result.profit_factor is None
+
+
 def test_backtest_equity_curve():
     """权益曲线正常性。"""
     dates = [date(2024, 1, i) for i in range(1, 11)]
@@ -139,8 +180,8 @@ def test_evaluator_synthesis_missing_source():
     assert any("source" in issue for issue in result.issues)
 
 
-def test_evaluator_synthesis_logic_conflict():
-    """高置信度但 sell 信号 → 逻辑矛盾。"""
+def test_evaluator_high_confidence_sell_is_valid():
+    """置信度表示结论强度，高置信度卖出不是逻辑矛盾。"""
     output = {
         "signal": "sell",
         "confidence": 0.75,
@@ -149,8 +190,8 @@ def test_evaluator_synthesis_logic_conflict():
         "disclaimer": "仅供研究参考，不构成投资建议",
     }
     result = evaluate("synthesis", output)
-    assert result.overall_score < 100.0
-    assert any("矛盾" in issue for issue in result.issues)
+    assert result.overall_score == 100.0
+    assert result.issues == []
 
 
 def test_evaluator_synthesis_confidence_out_of_range():
@@ -165,6 +206,36 @@ def test_evaluator_synthesis_confidence_out_of_range():
     result = evaluate("synthesis", output)
     assert result.overall_score < 100.0
     assert any("超出" in issue for issue in result.issues)
+
+
+def test_mock_broker_take_profit_closes_position_locally():
+    broker = MockBroker(initial_cash=100_000, commission_pct=0, slippage_pct=0)
+    broker.place_market_order("TEST", OrderSide.BUY, 100)
+    broker.tick("TEST", 100.0)
+    broker.set_position_protection(
+        "TEST", stop_loss_price=90.0, take_profit_price=110.0
+    )
+
+    filled = broker.tick("TEST", 111.0)
+
+    assert broker.get_positions() == {}
+    assert filled[-1].side == OrderSide.SELL
+    assert filled[-1].trigger_reason == "take_profit"
+
+
+def test_mock_broker_protective_prices_survive_state_restore():
+    broker = MockBroker(initial_cash=100_000, commission_pct=0, slippage_pct=0)
+    broker.place_market_order("TEST", OrderSide.BUY, 100)
+    broker.tick("TEST", 100.0)
+    broker.set_position_protection(
+        "TEST", stop_loss_price=90.0, take_profit_price=110.0
+    )
+
+    restored = MockBroker.from_state(broker.export_state())
+    position = restored.get_positions()["TEST"]
+
+    assert position.stop_loss_price == 90.0
+    assert position.take_profit_price == 110.0
 
 
 def test_evaluator_forbidden_keyword():

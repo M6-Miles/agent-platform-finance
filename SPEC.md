@@ -26,17 +26,20 @@
 | 服务入口 | `application_service.deep_research` → `run_securities_analysis` |
 | 测试覆盖 | LangGraph 工作流、审批恢复、离线网络封锁与 API 集成测试 |
 
-**工作流节点**（10 个，不含 START/END）：
+**工作流节点**（12 个，不含 START/END）：
 
 ```
 technical_agent, fundamental_agent, industry_agent, market_regime_agent
-→ synthesis_agent → no_trade / trader_agent → human_approval → risk_manager → trading_harness
+→ synthesis_agent → debate_approval / no_trade / trader_agent → human_approval
+→ risk_manager → evaluator_agent → trading_harness
 ```
 
 **条件路由**：
 - `synthesis_agent` 后：置信度 > 0.3 → `trader_agent`；否则 → `no_trade` → END
 - `trader_agent` 后：`HumanApprovalRequired` → `human_approval`；正常 → `risk_manager`；错误 → END
 - `human_approval` 后：approve → `risk_manager`；reject → END（block）
+- `risk_manager` 后：固定进入 `evaluator_agent`，独立评估 Synthesis、Trader 与 Risk Manager 输出
+- `evaluator_agent` 后：进入 `trading_harness`；最低质量分 < 80 时 Pre-Flight 强制人工复核
 - `trading_harness` 后：execute → END；block → END；manual_review → `human_approval`（interrupt）
 
 **当前状态**：证券分析 API、离线验收和人工审批恢复均使用 LangGraph；旧 GraphEngine 和历史 YAML 工作流已移除。
@@ -112,10 +115,22 @@ technical_agent, fundamental_agent, industry_agent, market_regime_agent
 | E-01 | 回测夏普比率 > 0.5（基线，不承诺盈利） | ❌ **未达标**（见 §3.1） |
 | E-02 | 可观测面板：Token 消耗、耗时、失败率可视化 | ✅ |
 | E-03 | 熔断机制：连续失败 N 次自动暂停 + 告警 | ✅ |
-| E-04 | Evaluator Agent 独立质量评分可运行 | ✅ |
+| E-04 | Evaluator Agent 独立质量评分可运行 | ✅（已接入 LangGraph 主链与可观测 trace） |
 | E-05 | Harness 效果量化：幻觉率下降 X%，无效调用减少 Y% | ⚠️ **部分达标**（见 §3.2） |
 | E-06 | 文档完整，代码可复现 | ✅ |
 | E-07 | 模拟盘按真实行情自然运行 1–2 周 | ⚠️ **收集中：1/7 个有效交易日** |
+
+### 3.0.1 外部服务与调度可靠性（2026-08-14）
+
+- `/health/providers` 分别暴露行情、Open-Meteo、DeepSeek 状态；启动自检不会调用付费 LLM。
+- 行情与天气记录成功率、缓存命中率、P95 延迟、连续失败和下一次重试时间；连续失败采用指数退避。
+- Open-Meteo 缺失预置区县候选时，使用省、市、区联合键约束的行政区中心参考坐标请求天气，并向前端返回定位说明；未知区县仍明确回退城市级。
+- 腾讯行情失败后，仅允许字段一致性校验通过的新浪公开行情作为延迟备用源；两者都失败时使用明确标记时间的最近成功缓存或返回不可用。
+- 长期监控使用本地版本化 A 股交易所日历；当前覆盖 2025-01-01 至 2026-12-31，超出范围不冒充权威交易日。
+- `(job_id, trading_date)` 唯一约束保证每日幂等，SQLite scheduler lease 保证多后端进程不会重复执行同一轮调度。
+- 前端 CSS 与字体均为项目内资源，生产运行不依赖 Tailwind CDN 或 Google Fonts。
+- 回测页面以同一行情区间、同一引擎、同一成本同时展示 MA5/MA20 与买入并持有；未修改 Sharpe 公式和 0.5 阈值。
+- `deploy/` 提供单机 Docker、Nginx、可选 HTTPS、SQLite 持久化与每日备份；版本更新保留服务器 `.env.production` 和 `data/`。
 
 ### 3.2 E-05 真实 LLM 实验口径（2026-08-14）
 

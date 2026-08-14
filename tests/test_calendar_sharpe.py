@@ -335,9 +335,12 @@ def test_to_dict_exposes_calendar_fields():
     r = run_backtest("T", df, [(df.iloc[1]["date"].isoformat(), "buy")])
     d = r.to_dict()
 
-    for k in ("sharpe_calendar", "annualized_volatility_calendar_pct", "time_in_market_pct"):
+    for k in (
+        "sharpe_calendar", "annualized_volatility_calendar_pct", "time_in_market_pct",
+        "avg_win_pct", "avg_loss_pct", "profit_loss_ratio", "profit_factor",
+    ):
         assert k in d, f"to_dict 缺少 {k}"
-    assert len(d) == 17
+    assert len(d) == 21
 
 
 def test_calendar_fields_default_to_zero():

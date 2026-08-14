@@ -62,6 +62,10 @@ class BacktestResult:
     sharpe_calendar: float = 0.0
     annualized_volatility_calendar_pct: float = 0.0
     time_in_market_pct: float = 0.0     # 持仓日 / 交易日
+    avg_win_pct: float = 0.0
+    avg_loss_pct: float = 0.0           # 绝对值；无亏损交易时为 0
+    profit_loss_ratio: float | None = None
+    profit_factor: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -81,6 +85,16 @@ class BacktestResult:
             "sharpe_calendar": round(self.sharpe_calendar, 3),
             "annualized_volatility_calendar_pct": round(self.annualized_volatility_calendar_pct, 2),
             "time_in_market_pct": round(self.time_in_market_pct, 2),
+            "avg_win_pct": round(self.avg_win_pct, 2),
+            "avg_loss_pct": round(self.avg_loss_pct, 2),
+            "profit_loss_ratio": (
+                round(self.profit_loss_ratio, 3)
+                if self.profit_loss_ratio is not None else None
+            ),
+            "profit_factor": (
+                round(self.profit_factor, 3)
+                if self.profit_factor is not None else None
+            ),
             "source": self.source,
         }
 
@@ -103,6 +117,10 @@ class BacktestResult:
             "**交易统计**",
             f"- 总交易次数：{self.total_trades}",
             f"- 胜率：{self.win_rate_pct:.1f}%（{self.winning_trades}胜/{self.losing_trades}负）",
+            f"- 平均盈利：{self.avg_win_pct:.2f}%",
+            f"- 平均亏损：{self.avg_loss_pct:.2f}%",
+            f"- 盈亏比：{self.profit_loss_ratio:.3f}" if self.profit_loss_ratio is not None else "- 盈亏比：N/A（缺少盈利或亏损交易）",
+            f"- Profit Factor：{self.profit_factor:.3f}" if self.profit_factor is not None else "- Profit Factor：N/A（缺少盈利或亏损交易）",
             f"- 平均滑点：{self.avg_slippage_pct:.3f}%",
         ])
 
@@ -268,7 +286,25 @@ def run_backtest(
     # 统计
     winning = [t for t in trades if t.return_pct > 0]
     losing  = [t for t in trades if t.return_pct <= 0]
+    strictly_losing = [t for t in trades if t.return_pct < 0]
     win_rate = len(winning) / len(trades) * 100.0 if trades else 0.0
+    avg_win_pct = (
+        sum(t.return_pct for t in winning) / len(winning) if winning else 0.0
+    )
+    avg_loss_pct = (
+        abs(sum(t.return_pct for t in strictly_losing) / len(strictly_losing))
+        if strictly_losing else 0.0
+    )
+    profit_loss_ratio = (
+        avg_win_pct / avg_loss_pct
+        if avg_win_pct > 0 and avg_loss_pct > 0 else None
+    )
+    gross_profit_pct = sum(t.return_pct for t in winning)
+    gross_loss_pct = abs(sum(t.return_pct for t in strictly_losing))
+    profit_factor = (
+        gross_profit_pct / gross_loss_pct
+        if gross_profit_pct > 0 and gross_loss_pct > 0 else None
+    )
     total_return = (equity / initial_capital - 1.0) * 100.0
 
     # 年化收益
@@ -328,4 +364,8 @@ def run_backtest(
         sharpe_calendar=sharpe_cal,
         annualized_volatility_calendar_pct=ann_vol_cal,
         time_in_market_pct=time_in_market,
+        avg_win_pct=avg_win_pct,
+        avg_loss_pct=avg_loss_pct,
+        profit_loss_ratio=profit_loss_ratio,
+        profit_factor=profit_factor,
     )

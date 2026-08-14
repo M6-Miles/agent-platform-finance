@@ -2,7 +2,7 @@
 
 更新时间：2026-08-14
 
-本文件是原始任务书“任务看板”的正式状态入口。功能明细以 `checklist.json` 为准，测试结果以实际命令输出为准，历史协作过程保存在 `CLAUDE_CODEX_LOG.md`。
+本文件是原始任务书“任务看板”的正式状态入口。功能明细以 `checklist.json` 为准，测试结果以实际命令输出为准。
 
 ## 当前结论
 
@@ -10,16 +10,26 @@
 |---|---|---|
 | Harness 九大组件 | 已实现并集成 | `SPEC.md`、`Rule/`、`Skill/`、`Workflow/`、`Scripts/`、`MCP/`、`SubAgents/`、`AGENTS.md`、本看板 |
 | Loop / Graph | 已实现并集成 | ReAct、记忆、调度、事件钩子、LangGraph、SQLite Checkpoint、人工审批恢复 |
-| 证券分析主流程 | 已实现并集成 | 4 个 Specialist Agent、Bull/Bear、Synthesis、Trader、Risk Manager |
+| 证券分析主流程 | 已实现并集成 | 4 个 Specialist Agent、Bull/Bear、Synthesis、Trader、Risk Manager、Evaluator、Pre-Flight |
+| Workflow DAG | 已实现并集成 | 真实 JSON 定义驱动 12 节点拓扑图，显示条件分支和运行状态；桌面与移动端已验收 |
+| Evaluator 主链 | 已实现并集成 | 独立评估 Synthesis、Trader、Risk Manager；最低分低于 80 时进入人工复核 |
 | 单笔亏损风控 | 已实现并集成 | 参考价、止损价、止损距离和批准仓位共同计算，预计账户损失不超过 2% |
-| 非金融 Demo | 已实现并集成 | 天气 API、Open-Meteo Provider、前端天气页 |
+| 止盈止损联动 | 已实现并集成 | Trader/Risk Manager/Pre-Flight/本地 MockBroker 共用保护价与最低 1.5:1 风险收益比；不连接真实券商 |
+| 回测盈亏质量 | 已实现并集成 | 平均盈利、平均亏损、整体盈亏比和 Profit Factor；无有效分母时明确返回 N/A |
+| 回测同区间基准 | 已实现并集成 | MA5/MA20 与买入并持有使用同一行情区间、同一回测引擎和同一成本口径 |
+| 非金融 Demo | 已实现并集成 | 天气 API、Open-Meteo Provider、前端天气页；预置区县支持中心参考坐标精确定位并显示说明 |
+| Provider 健康与缓存 | 已实现并集成 | 行情、天气、DeepSeek 分项状态；成功率、缓存命中率、P95、指数退避和最近成功时间 |
+| A 股交易日历 | 已实现并集成 | 本地版本化 2025–2026 休市日历；超出覆盖范围时明确降级为候选工作日 |
+| 前端离线静态资源 | 已实现并集成 | Tailwind CSS 打包在 `assets/app.css`，无 CDN 和外部字体依赖 |
+| 单机部署交付 | 已实现并集成 | `deploy/` 提供 Docker、Nginx、HTTPS、SQLite 持久化、备份和保留数据的版本更新流程 |
+| 仓库清理 | 已完成 | 删除损坏重复部署文档、协作日志、旧冒烟报告和废弃 final 别名；运行所需目录与验收证据保留 |
 | 20 只股票端到端 | 已达标 | `docs/deliverables_report.md` |
 | Sharpe > 0.5 | 未达标 | 样本外结果未稳定超过 0.5，详见 `docs/strategy_comparison.md` |
 | Harness Mock 对照 | 已达标 | 固定评测集可量化，但不代表真实 LLM 流量 |
 | 真实 LLM 对照 | 新版 100 条已完成，继续积累多日证据 | 标签匹配率 91.0%，违规召回率 100%，正常误报率 0%，Provider 错误率 0% |
 | 事实核验与无效调用 | 新口径已完成真实回放 | 固定事实错误 0/40（阻断率因分母为 0 记 N/A）；无效下游动作资格 60→0，不执行真实业务 API |
 | 模拟盘运行 1-2 周 | 收集中（1/7） | 2026-08-14 已记录 2 只证券的腾讯公开 live 行情，剩余至少 6 个有效交易日 |
-| 全量测试 | 通过 | `1622 collected；1621 passed, 1 skipped, 0 failed`（2026-08-14） |
+| 全量测试 | 通过 | 2026-08-14 实测：1658 项收集，1657 项通过、1 项跳过、0 失败 |
 
 ## 不可伪造约束
 
@@ -35,3 +45,4 @@
 2. 每日执行同一固定事实评测集；只有观测到真实事实错误时才计算事实错误阻断率。
 3. 继续进行严格样本外策略研究；稳健选参挑战方案未改善结果，不替换正式基线。
 4. 每次交付前运行 `python -m pytest -q -p no:cacheprovider` 并更新本文件和 `checklist.json`。
+5. 服务器更新必须先备份 SQLite，再上传干净项目压缩包；不得上传本机 `.env`、虚拟环境或数据库覆盖服务器数据。

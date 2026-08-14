@@ -6,6 +6,7 @@ import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -13,6 +14,10 @@ from uuid import uuid4
 from agent_platform.finance.mock_broker import MockBroker, OrderSide
 from agent_platform.finance.data_status import resolve_effective_data_mode
 from agent_platform.finance.quote_tool import get_latest_quote
+from agent_platform.finance.quote_tool import QuoteToolError
+
+if False:  # pragma: no cover - typing only, avoids a runtime dependency cycle
+    from agent_platform.core.provider_health import ProviderHealthRegistry
 
 
 def _now() -> str:
@@ -24,9 +29,16 @@ class PaperBrokerService:
 
     LIVE_QUOTE_TTL_SECONDS = 2.0
     OFFLINE_QUOTE_TTL_SECONDS = 300.0
+    STALE_QUOTE_MAX_AGE_SECONDS = 900.0
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(
+        self,
+        path: Path | str,
+        *,
+        provider_health: "ProviderHealthRegistry | None" = None,
+    ) -> None:
         self.path = Path(path)
+        self.provider_health = provider_health
         self._quote_cache: dict[tuple[str, str], tuple[float, object]] = {}
         self._quote_cache_lock = threading.Lock()
         self._order_lock = threading.RLock()
@@ -43,16 +55,63 @@ class PaperBrokerService:
             else self.LIVE_QUOTE_TTL_SECONDS
         )
         now = time.monotonic()
+        with self._quote_cache_lock:
+            cached = self._quote_cache.get(key)
         if not force:
-            with self._quote_cache_lock:
-                cached = self._quote_cache.get(key)
             if cached is not None and now - cached[0] <= ttl:
+                if self.provider_health is not None and effective_mode == "auto":
+                    self.provider_health.mark_cache_hit(
+                        "market_quote", source=cached[1].source,
+                        data_at=cached[1].updated_at,
+                    )
                 return cached[1], True, round(now - cached[0], 3)
 
-        quote = get_latest_quote(key[0], data_mode=key[1])
+        if (
+            effective_mode == "auto"
+            and self.provider_health is not None
+            and not self.provider_health.can_attempt("market_quote")
+        ):
+            if cached is not None and now - cached[0] <= self.STALE_QUOTE_MAX_AGE_SECONDS:
+                stale = replace(
+                    cached[1], data_status="delayed",
+                    source=f"{cached[1].source}（最近成功缓存）",
+                    fallback_reason="实时行情源处于指数退避期，暂用最近一次成功报价",
+                )
+                self.provider_health.mark_cache_hit(
+                    "market_quote", source=stale.source, data_at=stale.updated_at,
+                )
+                return stale, True, round(now - cached[0], 3)
+            raise QuoteToolError("行情源连续失败，正在指数退避，请稍后重试")
+
+        started = time.perf_counter()
+        try:
+            quote = get_latest_quote(key[0], data_mode=key[1])
+        except Exception as exc:
+            if self.provider_health is not None and effective_mode == "auto":
+                self.provider_health.record_failure(
+                    "market_quote", (time.perf_counter() - started) * 1000, exc
+                )
+            if cached is not None and now - cached[0] <= self.STALE_QUOTE_MAX_AGE_SECONDS:
+                stale = replace(
+                    cached[1], data_status="delayed",
+                    source=f"{cached[1].source}（最近成功缓存）",
+                    fallback_reason=f"实时行情获取失败（{type(exc).__name__}），暂用最近成功报价",
+                )
+                if self.provider_health is not None:
+                    self.provider_health.mark_cache_hit(
+                        "market_quote", source=stale.source, data_at=stale.updated_at,
+                    )
+                return stale, True, round(now - cached[0], 3)
+            raise
         stored_at = time.monotonic()
         with self._quote_cache_lock:
             self._quote_cache[key] = (stored_at, quote)
+        if self.provider_health is not None and effective_mode == "auto":
+            status = "real_time" if quote.data_status == "live" else "delayed"
+            self.provider_health.record_success(
+                "market_quote", (time.perf_counter() - started) * 1000,
+                status=status, source=quote.source, data_at=quote.updated_at,
+            )
         return quote, False, 0.0
 
     def get_quote(
@@ -62,7 +121,17 @@ class PaperBrokerService:
             symbol, data_mode, force=force_refresh,
         )
         result = quote.to_dict()
-        result.update({"quote_cache_hit": cache_hit, "quote_age_s": quote_age_s})
+        result.update({
+            "quote_cache_hit": cache_hit,
+            "quote_age_s": quote_age_s,
+            "delivery_status": (
+                "cached" if cache_hit and quote.data_status == "delayed"
+                else "cache" if cache_hit else
+                "real_time" if quote.data_status == "live" else
+                "offline_sample" if quote.data_status == "offline_sample" else "degraded"
+            ),
+            "cache_time": quote.updated_at if cache_hit else None,
+        })
         return result
 
     def _connect(self) -> sqlite3.Connection:
@@ -129,6 +198,8 @@ class PaperBrokerService:
         limit_price: float | None,
         data_mode: str,
         request_id: str | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
     ) -> dict:
         normalized_request_id = (request_id or "").strip() or None
         with self._order_lock:
@@ -150,6 +221,16 @@ class PaperBrokerService:
             else:
                 raise ValueError(f"未知 order_type: {order_type}")
             broker.tick(symbol, quote.price)
+            if direction == OrderSide.BUY and order.status.value == "filled" and (
+                stop_loss_price is not None or take_profit_price is not None
+            ):
+                if stop_loss_price is None or take_profit_price is None:
+                    raise ValueError("止损价和止盈价必须同时提供")
+                broker.set_position_protection(
+                    symbol,
+                    stop_loss_price=stop_loss_price,
+                    take_profit_price=take_profit_price,
+                )
             view = self._save(account_id, broker)
             view["submitted_order_id"] = order.order_id
             view["submitted_order_status"] = order.status.value
@@ -177,6 +258,8 @@ class PaperBrokerService:
         limit_price: float | None,
         data_mode: str,
         request_id: str | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
     ) -> dict:
         """Atomically apply an idempotent paper order across processes."""
         normalized_request_id = (request_id or "").strip() or None
@@ -210,6 +293,16 @@ class PaperBrokerService:
             else:
                 raise ValueError(f"未知 order_type: {order_type}")
             broker.tick(symbol, quote.price)
+            if direction == OrderSide.BUY and order.status.value == "filled" and (
+                stop_loss_price is not None or take_profit_price is not None
+            ):
+                if stop_loss_price is None or take_profit_price is None:
+                    raise ValueError("止损价和止盈价必须同时提供")
+                broker.set_position_protection(
+                    symbol,
+                    stop_loss_price=stop_loss_price,
+                    take_profit_price=take_profit_price,
+                )
             timestamp = _now()
             connection.execute(
                 "UPDATE paper_broker_accounts SET state_json = ?, updated_at = ? WHERE id = ?",
@@ -302,6 +395,13 @@ class PaperBrokerService:
                     **quote.to_dict(),
                     "quote_cache_hit": cache_hit,
                     "quote_age_s": quote_age_s,
+                    "delivery_status": (
+                        "cached" if cache_hit and quote.data_status == "delayed"
+                        else "cache" if cache_hit else
+                        "real_time" if quote.data_status == "live" else
+                        "offline_sample" if quote.data_status == "offline_sample" else "degraded"
+                    ),
+                    "cache_time": quote.updated_at if cache_hit else None,
                 }
             except Exception as exc:  # noqa: BLE001 - 每个标的独立报告，不伪造价格
                 errors[symbol] = f"{type(exc).__name__}: {exc}"

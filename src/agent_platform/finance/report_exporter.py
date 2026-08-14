@@ -110,16 +110,9 @@ def to_html_bytes(result: "SecurityAnalysisResult") -> bytes:
 
     df = result.price_history.copy()
     fig1 = make_candlestick_fig(df)
-    fig1.update_layout(title="K线 + 均线 + 布林带")
-
     fig2 = make_macd_fig(df)
-    fig2.update_layout(title="MACD(12/26/9)")
-
     fig3 = make_kdj_fig(df)
-    fig3.update_layout(title="KDJ(9,3,3)")
-
     fig4 = make_rsi_fig(df)
-    fig4.update_layout(title="RSI(14)")
 
     # 摘要表格 HTML
     summary_html = (
@@ -153,12 +146,24 @@ def to_html_bytes(result: "SecurityAnalysisResult") -> bytes:
         )
     summary_html += "</table>"
 
-    charts_html = "\n".join([
-        pio.to_html(fig1, full_html=False, include_plotlyjs="cdn"),
-        pio.to_html(fig2, full_html=False, include_plotlyjs=False),
-        pio.to_html(fig3, full_html=False, include_plotlyjs=False),
-        pio.to_html(fig4, full_html=False, include_plotlyjs=False),
-    ])
+    chart_specs = [
+        ("K线、均线与布林带", fig1, True),
+        ("MACD（12/26/9）", fig2, False),
+        ("KDJ（9/3/3）", fig3, False),
+        ("RSI（14）", fig4, False),
+    ]
+    charts_html = "\n".join(
+        "<section class='chart-section'>"
+        f"<h3>{title}</h3>"
+        + pio.to_html(
+            fig,
+            full_html=False,
+            include_plotlyjs=True if include_js else False,
+            config={"responsive": True, "displaylogo": False},
+        )
+        + "</section>"
+        for title, fig, include_js in chart_specs
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -170,6 +175,10 @@ def to_html_bytes(result: "SecurityAnalysisResult") -> bytes:
   body {{ font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
           max-width: 1200px; margin: 0 auto; padding: 24px; color: #333; }}
   h1 {{ color: #2a78d6; border-bottom: 2px solid #2a78d6; padding-bottom: 8px; }}
+  h2 {{ margin: 32px 0 14px; }}
+  .chart-section {{ margin: 0 0 34px; break-inside: avoid; overflow: hidden; }}
+  .chart-section h3 {{ margin: 0 0 4px; font-size: 18px; line-height: 1.4; color: #1f2937; }}
+  .chart-section .plotly-graph-div {{ width: 100% !important; }}
   .disclaimer {{ background: #fff8e1; border-left: 4px solid #ffc107;
                   padding: 10px 16px; margin: 16px 0; font-size: 13px; color: #795548; }}
 </style>

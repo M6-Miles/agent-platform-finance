@@ -14,7 +14,8 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
+from starlette.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent_platform import __version__
@@ -24,7 +25,7 @@ from agent_platform.finance.errors import (
     MarketDataDependencyError,
     MarketDataUnavailableError,
 )
-from agent_platform.finance.quote_tool import QuoteToolError
+from agent_platform.finance.quote_tool import QuoteToolError, get_latest_quote
 from agent_platform.logging_config import configure_logging
 from agent_platform.security import AuthenticationError, Principal, issue_token, verify_token
 from agent_platform.services.application_service import (
@@ -65,6 +66,14 @@ class UserRoleUpdateRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(..., min_length=8, max_length=200)
     new_password: str = Field(..., min_length=8, max_length=200)
+
+
+class BackupRequest(BaseModel):
+    name: str = Field(default="manual", pattern="^[A-Za-z0-9_-]{1,50}$")
+
+
+class RetentionRequest(BaseModel):
+    retention_days: int = Field(default=90, ge=7, le=3650)
 
 
 class SecurityAnalysisResponse(BaseModel):
@@ -123,7 +132,13 @@ def get_application_service() -> ApplicationService:
 async def lifespan(app: FastAPI):
     """FastAPI 生命周期管理：启动时初始化单例，关闭时显式释放 SQLite 连接。"""
     # 启动：确保单例已创建（预热，可选）
-    get_application_service()
+    service = get_application_service()
+    threading.Thread(
+        target=_probe_public_providers,
+        args=(service,),
+        name="provider-startup-probe",
+        daemon=True,
+    ).start()
     yield
     # 关闭：显式关闭 SQLite checkpoint 连接，避免 Windows 下文件占用
     global _app_service
@@ -138,10 +153,12 @@ app = FastAPI(
     description="本地演示版：离线 Mock Agent + 证券行情数据 + SQLite 历史。",
     lifespan=lifespan,
 )
+_ASSETS_DIR = pathlib.Path(__file__).parents[3] / "assets"
+app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="assets")
 
 
 _PUBLIC_PATHS = frozenset({
-    "/", "/health", "/ready", "/auth/status", "/auth/register", "/auth/login",
+    "/", "/health", "/health/providers", "/ready", "/auth/status", "/auth/register", "/auth/login",
     "/docs", "/openapi.json", "/redoc",
 })
 
@@ -149,7 +166,11 @@ _PUBLIC_PATHS = frozenset({
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         settings = get_application_service().settings
-        if not settings.auth_enabled or request.url.path in _PUBLIC_PATHS:
+        if (
+            not settings.auth_enabled
+            or request.url.path in _PUBLIC_PATHS
+            or request.url.path.startswith("/assets/")
+        ):
             request.state.principal = None
             return await call_next(request)
         authorization = request.headers.get("authorization", "")
@@ -186,9 +207,9 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* http://localhost:*"
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; font-src 'self'; "
+            "connect-src 'self' http://127.0.0.1:* http://localhost:*"
         )
         logger.info("request completed", extra={
             "request_id": request_id,
@@ -353,17 +374,29 @@ def analyze_weather(request: WeatherAnalysisRequest) -> WeatherAnalysisResponse:
     authoritative_source = "内置天气样例数据"
     if request.data_mode == "online":
         from agent_platform.weather import OpenMeteoWeatherProvider
+        weather_started = time.perf_counter()
         try:
             forecast = OpenMeteoWeatherProvider().get_forecast(request.city)
         except Exception as exc:
+            get_application_service().provider_health.record_failure(
+                "open_meteo", (time.perf_counter() - weather_started) * 1000, exc
+            )
             raise HTTPException(status_code=503, detail=f"联网天气获取失败：{exc}") from exc
+        get_application_service().provider_health.record_success(
+            "open_meteo",
+            (time.perf_counter() - weather_started) * 1000,
+            status=forecast.data_status,
+            source=forecast.source,
+            data_at=forecast.fetched_at,
+            cache_hit=forecast.cache_hit,
+        )
         display_city = forecast.city_name or forecast.resolved_name
         request = request.model_copy(update={
             "city": display_city,
             "temps": [round((day.temp_max_c + day.temp_min_c) / 2, 1) for day in forecast.daily],
             "source": "Open-Meteo 公开天气数据",
         })
-        authoritative_source = "Open-Meteo 公开天气数据"
+        authoritative_source = forecast.source
         forecast_payload = {
             "requested_city": forecast.requested_city,
             "resolved_name": forecast.resolved_name,
@@ -385,6 +418,10 @@ def analyze_weather(request: WeatherAnalysisRequest) -> WeatherAnalysisResponse:
             "location_note": forecast.location_note,
             "daily": [day.to_dict() for day in forecast.daily],
             "source": authoritative_source,
+            "data_status": forecast.data_status,
+            "cache_hit": forecast.cache_hit,
+            "cache_time": forecast.cache_time,
+            "fallback_reason": forecast.fallback_reason,
         }
     else:
         request = request.model_copy(update={"source": authoritative_source})
@@ -500,6 +537,7 @@ class ResearchStateResponse(BaseModel):
     synthesis: dict | None = None
     trade_signal: dict | None = None
     risk_result: dict | None = None
+    evaluator_summary: dict | None = None
     preflight_result: dict | None = None
     data_quality_summary: dict | None = None
     confidence: float | None = None
@@ -534,6 +572,16 @@ def root():
     )
 
 
+@app.get("/workflows/{workflow_id}")
+def get_workflow_definition(workflow_id: str) -> dict[str, Any]:
+    """返回经过 Schema 和图结构校验的工作流定义，供前端渲染 DAG。"""
+    if workflow_id not in {"securities_analysis", "weather_analysis"}:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    from agent_platform.workflow.loader import load_workflow
+
+    return dict(load_workflow(workflow_id).raw)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     settings = get_settings()
@@ -546,6 +594,47 @@ def health() -> dict[str, str]:
         "storage": "sqlite",
         "version": __version__,
     }
+
+
+def _probe_public_providers(service: ApplicationService, *, force: bool = False) -> None:
+    """Probe free public services only; startup never calls a paid LLM endpoint."""
+    registry = service.provider_health
+
+    def quote_probe() -> dict[str, Any]:
+        quote = get_latest_quote("000001", data_mode="auto").to_dict()
+        return {
+            "status": "real_time" if quote.get("data_status") == "live" else "delayed",
+            "source": quote.get("source"),
+            "updated_at": quote.get("updated_at"),
+        }
+
+    def weather_probe() -> dict[str, Any]:
+        from agent_platform.weather import OpenMeteoWeatherProvider
+        forecast = OpenMeteoWeatherProvider().get_forecast("北京市")
+        return {
+            "status": forecast.data_status,
+            "source": forecast.source,
+            "updated_at": forecast.fetched_at,
+        }
+
+    def database_probe() -> dict[str, Any]:
+        from agent_platform.storage.database_admin import database_health
+        result = database_health(service.settings.sqlite_path)
+        if result.get("integrity") != "ok":
+            raise RuntimeError("database integrity check failed")
+        return {"status": "real_time", "source": "本地 SQLite", "updated_at": None}
+
+    registry.probe("database", database_probe, force=force)
+    registry.probe("market_quote", quote_probe, force=force)
+    registry.probe("open_meteo", weather_probe, force=force)
+
+
+@app.get("/health/providers")
+def provider_health(refresh: bool = Query(False)) -> dict[str, Any]:
+    service = get_application_service()
+    if refresh:
+        _probe_public_providers(service, force=True)
+    return service.provider_health.snapshot()
 
 
 @app.get("/ready")
@@ -828,6 +917,49 @@ def security_analysis(
     )
 
 
+@app.get("/analysis/{symbol}/export")
+def export_security_analysis(
+    symbol: str,
+    start: date | None = None,
+    end: date | None = None,
+    data_mode: str = Query("auto", pattern="^(offline|auto)$"),
+    file_format: str = Query("xlsx", alias="format", pattern="^(xlsx|html)$"),
+) -> Response:
+    """Generate a report from the same analysis window shown on the page."""
+    from agent_platform.finance.analysis_service import AnalysisError, analyze_window
+    from agent_platform.finance.data_status import MarketDataAllSourcesFailed
+    from agent_platform.finance.date_window import DateRangeError, InsufficientHistoryError
+    from agent_platform.finance.report_exporter import to_excel_bytes, to_html_bytes
+
+    try:
+        result = analyze_window(
+            symbol, start=start, end=end, data_mode=data_mode
+        ).result
+    except InvalidSecuritySymbolError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except MarketDataDependencyError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except (MarketDataUnavailableError, MarketDataAllSourcesFailed) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (DateRangeError, InsufficientHistoryError, AnalysisError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if file_format == "xlsx":
+        content = to_excel_bytes(result)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        suffix = "xlsx"
+    else:
+        content = to_html_bytes(result)
+        media_type = "text/html; charset=utf-8"
+        suffix = "html"
+    filename = f"security_analysis_{result.symbol}_{result.start_date}_{result.end_date}.{suffix}"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/sessions")
 def create_session(request: SessionCreateRequest, http_request: Request) -> dict[str, str]:
     record = get_application_service().create_session(request.title)
@@ -921,6 +1053,8 @@ class QuoteResponse(BaseModel):
     fallback_reason: str | None
     quote_cache_hit: bool = False
     quote_age_s: float = 0.0
+    delivery_status: str = "unknown"
+    cache_time: str | None = None
 
 
 class PaperAccountCreateRequest(BaseModel):
@@ -935,6 +1069,8 @@ class PaperOrderRequest(BaseModel):
     limit_price: float | None = None
     data_mode: str = "auto"
     request_id: str | None = None
+    stop_loss_price: float | None = None
+    take_profit_price: float | None = None
 
 
 class PaperRefreshRequest(BaseModel):
@@ -960,14 +1096,6 @@ class PaperMonitorCreateRequest(BaseModel):
 
 class PaperMonitorToggleRequest(BaseModel):
     enabled: bool
-
-
-class BackupRequest(BaseModel):
-    name: str = Field(default="manual", pattern="^[A-Za-z0-9_-]{1,50}$")
-
-
-class RetentionRequest(BaseModel):
-    retention_days: int = Field(default=90, ge=7, le=3650)
 
 
 @app.get("/price-history/{symbol}", response_model=list[PriceBar])
@@ -1057,6 +1185,8 @@ def quote(
         fallback_reason=data["fallback_reason"],
         quote_cache_hit=bool(data.get("quote_cache_hit", False)),
         quote_age_s=float(data.get("quote_age_s", 0.0)),
+        delivery_status=str(data.get("delivery_status", "unknown")),
+        cache_time=data.get("cache_time"),
     )
 
 
@@ -1093,6 +1223,8 @@ def place_paper_order(account_id: str, request: PaperOrderRequest, http_request:
             limit_price=request.limit_price,
             data_mode=request.data_mode,
             request_id=request.request_id,
+            stop_loss_price=request.stop_loss_price,
+            take_profit_price=request.take_profit_price,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1356,6 +1488,7 @@ def get_research_state(thread_id: str, request: Request) -> ResearchStateRespons
         synthesis=state_vals.get("synthesis"),
         trade_signal=state_vals.get("trade_signal"),
         risk_result=state_vals.get("risk_result"),
+        evaluator_summary=state_vals.get("evaluator_summary"),
         preflight_result=preflight_result,
         data_quality_summary=(preflight_result or {}).get("data_quality_summary"),
         confidence=state_vals.get("confidence"),

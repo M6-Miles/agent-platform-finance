@@ -92,6 +92,7 @@ class SecuritiesAnalysisState(TypedDict, total=False):
 
     # ── 风控 & Harness ────────────────────────────────────
     risk_result: Optional[dict]        # RiskManagerResult.to_dict()
+    evaluator_summary: Optional[dict]  # Synthesis/Trader/Risk 独立质量评分
     preflight_result: Optional[dict]   # TradingHarnessResult.to_dict()
 
     # ── 最终状态 ──────────────────────────────────────────
@@ -617,6 +618,7 @@ def node_trading_harness(state: SecuritiesAnalysisState) -> dict:
             fundamental_analysis=state.get("fundamental_analysis"),
             industry_analysis=state.get("industry_analysis"),
             market_regime=state.get("market_regime"),
+            evaluator_summary=state.get("evaluator_summary"),
             execution_context={
                 "as_of": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
                 "latest_volume": technical.get("latest_volume"),
@@ -666,6 +668,47 @@ def node_trading_harness(state: SecuritiesAnalysisState) -> dict:
         "final_action": action,
         "status": "preflight_done",
         "trace_entries": _te("trading_harness", t0),
+    }
+
+
+def node_evaluator_agent(state: SecuritiesAnalysisState) -> dict:
+    """独立评估综合、交易和风控输出，并把低分交给 Pre-Flight 复核。"""
+    from agent_platform.core.evaluator_agent import evaluate
+
+    t0 = time.perf_counter()
+    subjects = {
+        "synthesis": state.get("synthesis"),
+        "trader": state.get("trade_signal"),
+        "risk_manager": state.get("risk_result"),
+    }
+    results: dict[str, dict] = {}
+    issues: list[str] = []
+    scores: list[float] = []
+
+    for subject, output in subjects.items():
+        if not output:
+            issues.append(f"{subject}: 缺少待评估输出")
+            scores.append(0.0)
+            continue
+        result = evaluate(subject, output)
+        results[subject] = result.to_dict()
+        scores.append(result.overall_score)
+        issues.extend(f"{subject}: {issue}" for issue in result.issues)
+
+    minimum = min(scores) if scores else 0.0
+    average = sum(scores) / len(scores) if scores else 0.0
+    summary = {
+        "evaluations": results,
+        "minimum_score": round(minimum, 1),
+        "average_score": round(average, 1),
+        "requires_manual_review": minimum < 80.0,
+        "issues": issues,
+        "source": "evaluator_agent",
+        "updated_at": _now_iso(),
+    }
+    return {
+        "evaluator_summary": summary,
+        "trace_entries": _te("evaluator_agent", t0),
     }
 
 
@@ -772,6 +815,7 @@ def build_securities_graph(checkpointer=None):
     builder.add_node("trader_agent",        node_trader_agent)
     builder.add_node("human_approval",      node_human_approval)
     builder.add_node("risk_manager",        node_risk_manager)
+    builder.add_node("evaluator_agent",     node_evaluator_agent)
     builder.add_node("trading_harness",     node_trading_harness)
 
     # 并行分析层
@@ -812,7 +856,8 @@ def build_securities_graph(checkpointer=None):
         route_after_human_approval,
         {"risk_manager": "risk_manager", END: END},
     )
-    builder.add_edge("risk_manager", "trading_harness")
+    builder.add_edge("risk_manager", "evaluator_agent")
+    builder.add_edge("evaluator_agent", "trading_harness")
     builder.add_conditional_edges(
         "trading_harness",
         route_after_preflight,

@@ -73,6 +73,7 @@ class BacktestServiceResult:
     equity_curve: list[dict[str, float | str]]
     trades: list[dict[str, float | str]]
     signals: dict[date, str]
+    benchmarks: dict[str, dict]
     source: str
     updated_at: str
     data_status: str
@@ -169,6 +170,38 @@ def run_strategy_backtest(
         initial_capital=initial_capital,
     )
 
+    # Same window, same engine, same costs. The only difference is one initial
+    # buy signal held until the engine's forced exit; no metric is recomputed here.
+    buy_hold = run_backtest(
+        symbol=symbol,
+        price_df=in_window,
+        signals={_as_date(in_window.iloc[0]["date"]): "buy"},
+        initial_capital=initial_capital,
+    )
+    benchmark_dates = [_as_date(value).isoformat() for value in in_window["date"]]
+    benchmarks = {
+        "ma_baseline": {
+            "label": "MA5/MA20 基线",
+            "total_return_pct": round(result.total_return_pct, 4),
+            "sharpe_calendar": round(result.sharpe_calendar, 4),
+            "max_drawdown_pct": round(result.max_drawdown_pct, 4),
+            "equity_curve": [
+                {"date": benchmark_dates[i], "nav": round(value, 6)}
+                for i, value in enumerate(result.equity_curve[:len(benchmark_dates)])
+            ],
+        },
+        "buy_and_hold": {
+            "label": "买入并持有基准",
+            "total_return_pct": round(buy_hold.total_return_pct, 4),
+            "sharpe_calendar": round(buy_hold.sharpe_calendar, 4),
+            "max_drawdown_pct": round(buy_hold.max_drawdown_pct, 4),
+            "equity_curve": [
+                {"date": benchmark_dates[i], "nav": round(value, 6)}
+                for i, value in enumerate(buy_hold.equity_curve[:len(benchmark_dates)])
+            ],
+        },
+    }
+
     # 净值曲线与 in_window 行一一对应（run_backtest 每个交易日 append 一次）
     dates = [d for d in in_window["date"]]
     curve_len = min(len(result.equity_curve), len(dates))
@@ -237,6 +270,7 @@ def run_strategy_backtest(
         equity_curve=equity_curve,
         trades=trades,
         signals=signals,
+        benchmarks=benchmarks,
         source=outcome.source,
         updated_at=outcome.updated_at,
         data_status=outcome.data_status,

@@ -71,7 +71,7 @@ class TradingHarnessResult:
 class TradingHarness:
     """
     Pre-Flight Checklist for Trading Signals.
-    9 项检查：
+    11 项检查：
       1. 数据质量决策（data_status 离线/fallback 约束）
       2. 数据溯源（source/updated_at 完整性）
       3. 违禁词拦截（KeywordBlocker 规则）
@@ -81,6 +81,8 @@ class TradingHarness:
       7. 回撤保护（RiskManagerResult.final_signal 非 "reduce"）
       8. 交易时段（正式执行路径必须处于 A 股连续竞价时段）
       9. 流动性（最新日成交额代理值满足最低阈值）
+      10. 独立 Evaluator（低于 80 分进入人工复核）
+      11. 止盈止损关系与风险收益比
     """
 
     _BLOCKED_KEYWORDS = [
@@ -104,6 +106,7 @@ class TradingHarness:
         fundamental_analysis: dict[str, Any] | None = None,
         industry_analysis: dict[str, Any] | None = None,
         market_regime: dict[str, Any] | None = None,
+        evaluator_summary: dict[str, Any] | None = None,
         execution_context: dict[str, Any] | None = None,
     ) -> TradingHarnessResult:
         """执行 Pre-Flight Checklist，返回最终批准结果。"""
@@ -128,6 +131,8 @@ class TradingHarness:
         # 4. 仓位合规
         position_ok = self._check_position(trader_result, risk_result)
         checks.append(position_ok)
+        protection_ok = self._check_protective_prices(trader_result, risk_result)
+        checks.append(protection_ok)
 
         # 5. Schema 校验
         schema_ok = self._check_schema(trader_result)
@@ -147,6 +152,8 @@ class TradingHarness:
         checks.append(trading_hours_ok)
         liquidity_ok = self._check_liquidity(execution_context)
         checks.append(liquidity_ok)
+        evaluator_ok = self._check_evaluator(evaluator_summary)
+        checks.append(evaluator_ok)
 
         # 综合判断
         approved = all(c.passed for c in checks)
@@ -191,6 +198,33 @@ class TradingHarness:
             return PreFlightCheckResult("仓位合规", True, f"建议仓位 {suggested:.1f}% ≤ 风控批准 {approved:.1f}%")
         return PreFlightCheckResult("仓位合规", False, f"建议仓位 {suggested:.1f}% > 风控批准 {approved:.1f}%（超限）")
 
+    @staticmethod
+    def _check_protective_prices(trader: dict, risk: dict) -> PreFlightCheckResult:
+        if trader.get("signal") != "buy":
+            return PreFlightCheckResult("止盈止损", True, "非买入信号，无需新增保护价")
+        try:
+            entry = float(trader.get("entry_price"))
+            stop = float(risk.get("stop_loss_price"))
+            take = float(risk.get("take_profit_price"))
+            ratio = float(risk.get("risk_reward_ratio"))
+        except (TypeError, ValueError):
+            return PreFlightCheckResult(
+                "止盈止损", False, "入场价、止损价、止盈价或风险收益比缺失"
+            )
+        if not (0 < stop < entry < take):
+            return PreFlightCheckResult(
+                "止盈止损", False,
+                f"保护价关系无效：要求 止损({stop:.2f}) < 入场({entry:.2f}) < 止盈({take:.2f})",
+            )
+        if ratio < 1.5:
+            return PreFlightCheckResult(
+                "止盈止损", False, f"风险收益比 {ratio:.2f}:1 低于 1.50:1"
+            )
+        return PreFlightCheckResult(
+            "止盈止损", True,
+            f"止损 {stop:.2f} / 止盈 {take:.2f} / 风险收益比 {ratio:.2f}:1",
+        )
+
     def _check_schema(self, trader: dict) -> PreFlightCheckResult:
         from agent_platform.finance.trader_agent import TRADER_SCHEMA
         required = TRADER_SCHEMA.get("required", [])
@@ -210,6 +244,28 @@ class TradingHarness:
         if final_sig != "reduce":
             return PreFlightCheckResult("回撤保护", True, f"风控信号={final_sig}（未触发减仓）")
         return PreFlightCheckResult("回撤保护", False, "触发回撤保护，信号=reduce，禁止新增仓位")
+
+    @staticmethod
+    def _check_evaluator(summary: dict[str, Any] | None) -> PreFlightCheckResult:
+        if summary is None:
+            return PreFlightCheckResult(
+                "独立质量评估", True, "兼容调用未提供 Evaluator 结果，本项未评估"
+            )
+        score = summary.get("minimum_score")
+        try:
+            numeric_score = float(score)
+        except (TypeError, ValueError):
+            return PreFlightCheckResult(
+                "独立质量评估", False, "Evaluator 最低分缺失或无效，需人工复核"
+            )
+        if not summary.get("requires_manual_review") and numeric_score >= 80.0:
+            return PreFlightCheckResult(
+                "独立质量评估", True, f"三类输出最低评分 {numeric_score:.1f}/100"
+            )
+        return PreFlightCheckResult(
+            "独立质量评估", False,
+            f"三类输出最低评分 {numeric_score:.1f}/100，低于 80 分，需人工复核",
+        )
 
     @staticmethod
     def _check_trading_hours(context: dict[str, Any] | None) -> PreFlightCheckResult:

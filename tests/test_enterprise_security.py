@@ -211,6 +211,10 @@ def test_frontend_registration_contract() -> None:
     assert 'id="obs-reset-btn"' in html
     assert "`${API_BASE}/auth/password`" in html
     assert "新密码（至少8位）" in html
+    assert 'id="mobile-nav-toggle"' in html
+    assert 'id="mobile-sidebar-overlay"' in html
+    assert "function toggleMobileSidebar(forceOpen)" in html
+    assert "@media (max-width: 767px)" in html
 
 
 def test_user_cannot_read_another_users_session(tmp_path, monkeypatch) -> None:

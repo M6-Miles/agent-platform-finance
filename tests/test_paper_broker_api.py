@@ -128,6 +128,40 @@ def test_recent_server_quote_is_reused_for_order(monkeypatch, tmp_path) -> None:
     assert calls == ["DEMO001"]
 
 
+def test_service_refresh_executes_persisted_take_profit(monkeypatch, tmp_path) -> None:
+    from agent_platform.finance import paper_broker_service as module
+
+    price = {"value": 100.0}
+
+    def fake_quote(symbol: str, *, data_mode: str):
+        quote = _quote(symbol)
+        return QuotePayload(
+            symbol=quote.symbol, name=quote.name, price=price["value"],
+            prev_close=quote.prev_close, change_pct=quote.change_pct,
+            market=quote.market, source=quote.source, updated_at=quote.updated_at,
+            data_status=quote.data_status, fallback_reason=quote.fallback_reason,
+        )
+
+    monkeypatch.setattr(module, "get_latest_quote", fake_quote)
+    service = PaperBrokerService(tmp_path / "take-profit.sqlite3")
+    account_id = service.create_account(100_000)["account_id"]
+    service.place_order(
+        account_id, symbol="DEMO001", side="buy", quantity=100,
+        order_type="market", limit_price=None, data_mode="auto",
+        request_id="protected-buy", stop_loss_price=90.0,
+        take_profit_price=110.0,
+    )
+
+    price["value"] = 111.0
+    service.refresh(
+        account_id, symbols=["DEMO001"], data_mode="auto", force_refresh=True
+    )
+    recovered = PaperBrokerService(tmp_path / "take-profit.sqlite3").get_account(account_id)
+
+    assert recovered["positions"] == []
+    assert recovered["trades"][-1]["trigger_reason"] == "take_profit"
+
+
 def test_force_quote_refresh_bypasses_live_cache(monkeypatch, tmp_path) -> None:
     from agent_platform.finance import paper_broker_service as module
 
@@ -145,6 +179,30 @@ def test_force_quote_refresh_bypasses_live_cache(monkeypatch, tmp_path) -> None:
     assert first["quote_cache_hit"] is False
     assert forced["quote_cache_hit"] is False
     assert calls == ["600519", "600519"]
+
+
+def test_failed_live_refresh_uses_explicit_stale_cache_and_keeps_backoff(monkeypatch, tmp_path) -> None:
+    from agent_platform.core.provider_health import ProviderHealthRegistry
+    from agent_platform.finance import paper_broker_service as module
+
+    registry = ProviderHealthRegistry()
+    monkeypatch.setattr(module, "get_latest_quote", lambda symbol, *, data_mode: _quote(symbol))
+    service = PaperBrokerService(
+        tmp_path / "stale-cache.sqlite3", provider_health=registry
+    )
+    service.get_quote("600519", "auto")
+    monkeypatch.setattr(
+        module, "get_latest_quote",
+        lambda symbol, *, data_mode: (_ for _ in ()).throw(ConnectionError("down")),
+    )
+
+    cached = service.get_quote("600519", "auto", force_refresh=True)
+
+    assert cached["delivery_status"] == "cached"
+    assert cached["data_status"] == "delayed"
+    assert cached["cache_time"]
+    assert cached["fallback_reason"]
+    assert registry.can_attempt("market_quote") is False
 
 
 def test_order_request_id_is_idempotent(monkeypatch, tmp_path) -> None:

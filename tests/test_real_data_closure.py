@@ -588,8 +588,10 @@ def test_frontend_distinguishes_market_data_failure_from_backend_offline() -> No
 
 # ── 7. 回测：真实引擎 + 日期/价格不变量 ─────────────────────────────────────
 
-def test_backtest_invokes_project_engine(client: TestClient, monkeypatch) -> None:
-    """/backtest 必须调用既有 finance/backtesting.py::run_backtest。"""
+def test_backtest_invokes_project_engine_for_strategy_and_benchmark(
+    client: TestClient, monkeypatch
+) -> None:
+    """策略与买入持有基准都必须调用既有引擎，禁止另算一套指标。"""
     calls: list[dict] = []
     original = backtesting.run_backtest
 
@@ -606,7 +608,10 @@ def test_backtest_invokes_project_engine(client: TestClient, monkeypatch) -> Non
         "initial_capital": 1_000_000, "data_mode": "offline",
     })
     assert resp.status_code == 200, resp.text
-    assert len(calls) == 1, "未调用项目既有回测引擎"
+    assert len(calls) == 2, "策略与同区间基准必须各调用一次项目既有回测引擎"
+    strategy_call, benchmark_call = calls
+    assert strategy_call["kwargs"]["price_df"].equals(benchmark_call["kwargs"]["price_df"])
+    assert strategy_call["kwargs"]["initial_capital"] == benchmark_call["kwargs"]["initial_capital"]
 
 
 def test_backtest_dates_and_prices_are_real(client: TestClient) -> None:
@@ -872,6 +877,14 @@ def test_frontend_quantity_label_is_shares() -> None:
     assert "数量（股）" in text
     assert "数量（手）" not in text
     assert "SHARES_PER_LOT = 100" in text
+
+
+def test_frontend_backtest_shows_same_window_benchmarks() -> None:
+    text = FRONTEND.read_text(encoding="utf-8")
+    assert 'id="bt-benchmark-summary"' in text
+    assert "MA5/MA20 基线：收益" in text
+    assert "同区间买入并持有：收益" in text
+    assert "result.benchmarks?.buy_and_hold" in text
 
 
 def test_frontend_paper_order_has_progress_and_idempotency() -> None:

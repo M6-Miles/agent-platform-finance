@@ -23,6 +23,7 @@ RISK_MANAGER_SCHEMA: dict[str, Any] = {
     "required": [
         "symbol", "approved_position_pct", "risk_flags",
         "final_signal", "estimated_loss_pct", "risk_budget_pct",
+        "take_profit_price", "risk_reward_ratio",
         "source", "updated_at", "disclaimer"
     ],
     "properties": {
@@ -30,6 +31,8 @@ RISK_MANAGER_SCHEMA: dict[str, Any] = {
         "approved_position_pct": {"type": "number", "minimum": 0, "maximum": 100},
         "entry_price": {"type": ["number", "null"]},
         "stop_loss_price": {"type": ["number", "null"]},
+        "take_profit_price": {"type": ["number", "null"]},
+        "risk_reward_ratio": {"type": ["number", "null"], "minimum": 0},
         "stop_distance_pct": {"type": ["number", "null"], "minimum": 0},
         "estimated_loss_pct": {"type": "number", "minimum": 0},
         "risk_budget_pct": {"type": "number", "minimum": 0},
@@ -53,6 +56,8 @@ class RiskManagerResult:
     approved_position_pct: float   # 风控通过后的实际仓位
     entry_price: float | None
     stop_loss_price: float | None
+    take_profit_price: float | None
+    risk_reward_ratio: float | None
     stop_distance_pct: float | None
     estimated_loss_pct: float
     risk_budget_pct: float
@@ -69,6 +74,8 @@ class RiskManagerResult:
             "approved_position_pct": self.approved_position_pct,
             "entry_price": self.entry_price,
             "stop_loss_price": self.stop_loss_price,
+            "take_profit_price": self.take_profit_price,
+            "risk_reward_ratio": self.risk_reward_ratio,
             "stop_distance_pct": self.stop_distance_pct,
             "estimated_loss_pct": self.estimated_loss_pct,
             "risk_budget_pct": self.risk_budget_pct,
@@ -90,6 +97,7 @@ class RiskManagerResult:
             f"### {self.symbol} 风控结果",
             f"- 批准仓位：{self.approved_position_pct:.1f}%",
             f"- 单笔账户风险：{self.estimated_loss_pct:.2f}% / 上限 {self.risk_budget_pct:.2f}%",
+            f"- 风险收益比：{self.risk_reward_ratio:.2f}:1" if self.risk_reward_ratio is not None else "- 风险收益比：N/A",
             f"- 最终信号：{sig_map.get(self.final_signal, self.final_signal)}",
             "",
             "**风险提示**",
@@ -137,13 +145,20 @@ def assess_risk(
     approved = suggested
     entry_price = trader_result.get("entry_price")
     stop_loss_price = trader_result.get("stop_loss_price")
+    take_profit_price = trader_result.get("take_profit_price")
     stop_distance_pct: float | None = None
+    risk_reward_ratio: float | None = None
     if trader_signal == "buy" and suggested > 0:
         try:
             entry_price = float(entry_price)
             stop_loss_price = float(stop_loss_price)
         except (TypeError, ValueError):
             entry_price = stop_loss_price = None
+
+        try:
+            take_profit_price = float(take_profit_price)
+        except (TypeError, ValueError):
+            take_profit_price = None
 
         if not entry_price or entry_price <= 0 or stop_loss_price is None or not 0 < stop_loss_price < entry_price:
             approved = 0.0
@@ -157,6 +172,19 @@ def assess_risk(
                     f"止损距离 {stop_distance_pct:.2f}% 下建议仓位将超过单笔亏损上限 "
                     f"{max_loss_pct:.2f}%，仓位已降至 {approved:.2f}%"
                 )
+
+            if take_profit_price is None or take_profit_price <= entry_price:
+                approved = 0.0
+                risk_flags.append("买入建议缺少有效止盈价，禁止自动批准仓位")
+            else:
+                risk_reward_ratio = (
+                    (take_profit_price - entry_price) / (entry_price - stop_loss_price)
+                )
+                if risk_reward_ratio < 1.5:
+                    approved = 0.0
+                    risk_flags.append(
+                        f"风险收益比 {risk_reward_ratio:.2f}:1 低于最低要求 1.50:1，禁止自动批准仓位"
+                    )
 
     if max_single_position_pct is not None and approved > max_single_position_pct:
         approved = max_single_position_pct
@@ -196,6 +224,8 @@ def assess_risk(
         approved_position_pct=round(approved, 1),
         entry_price=entry_price,
         stop_loss_price=stop_loss_price,
+        take_profit_price=take_profit_price,
+        risk_reward_ratio=(round(risk_reward_ratio, 4) if risk_reward_ratio is not None else None),
         stop_distance_pct=round(stop_distance_pct, 4) if stop_distance_pct is not None else None,
         estimated_loss_pct=round(estimated_loss_pct, 4),
         risk_budget_pct=round(max_loss_pct, 4),

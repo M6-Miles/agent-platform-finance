@@ -226,6 +226,26 @@ class TestMissingAkshare:
 
 
 class TestRealtimeQuoteConsistency:
+    def test_sina_backup_requires_consistent_fields(self) -> None:
+        provider = AkShareMarketDataProvider()
+        fields = ["0"] * 33
+        fields[0] = "贵州茅台"
+        fields[1] = "1340.00"
+        fields[2] = "1330.00"
+        fields[3] = "1345.00"
+        fields[4] = "1350.00"
+        fields[5] = "1335.00"
+        fields[30] = "2026-08-14"
+        fields[31] = "15:00:00"
+        payload = f'var hq_str_sh600519="{",".join(fields)}";'
+
+        quote = provider._parse_sina_snapshot(payload, "600519")
+
+        assert quote["symbol"] == "600519"
+        assert quote["price"] == 1345.0
+        assert quote["data_status"] == "delayed"
+        assert "一致性校验通过" in quote["source"]
+
     def test_uses_previous_trading_day_close_not_current_open(self, monkeypatch) -> None:
         class FakeAk:
             @staticmethod

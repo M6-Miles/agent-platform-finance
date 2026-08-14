@@ -89,7 +89,6 @@ def publish_canonical_reports(
 
     ``latest_attempt`` 是小型索引，记录最近一次尝试（包括无凭证跳过）；
     ``latest`` 只保存完整 100 条真实企业评测。3 条冒烟单独写 ``smoke_latest``。
-    传统 ``final`` 保留为兼容索引，不再复制一份数千行报告。
     """
     output_dir = project_root / "docs" / "experiments"
     published: list[Path] = []
@@ -165,20 +164,6 @@ def publish_canonical_reports(
         )
         _atomic_copy(md_path, latest_md)
         published.extend((latest_json, latest_md))
-        final_json = output_dir / f"real_llm_replay_{provider}_final.json"
-        final_md = output_dir / f"real_llm_replay_{provider}_final.md"
-        final_manifest = {
-            "deprecated_alias": True,
-            "canonical_json": f"real_llm_replay_{provider}_latest.json",
-            "canonical_markdown": f"real_llm_replay_{provider}_latest.md",
-        }
-        _atomic_write_text(final_json, json.dumps(final_manifest, ensure_ascii=False, indent=2) + "\n")
-        _atomic_write_text(
-            final_md,
-            "# 真实 LLM 回放报告兼容入口\n\n"
-            f"权威报告已统一为 `real_llm_replay_{provider}_latest.md`。\n",
-        )
-        published.extend((final_json, final_md))
     else:
         publish_copy("smoke_latest")
     return published

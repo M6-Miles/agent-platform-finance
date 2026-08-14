@@ -271,8 +271,8 @@ class TestLoaderBasics:
         info = load_workflow("securities_analysis").describe()
         assert info["workflow_id"] == "securities_analysis"
         assert info["engine"] == "langgraph"
-        assert info["node_count"] == 11
-        assert info["edge_count"] == 15
+        assert info["node_count"] == 12
+        assert info["edge_count"] == 16
         assert info["conditional_edge_count"] == 5
         assert info["checkpoint_enabled"] is True
         assert info["parallel_groups"] == ["analysis_fanout"]
@@ -288,6 +288,23 @@ class TestLoaderBasics:
     def test_unknown_workflow_id_raises(self) -> None:
         with pytest.raises((FileNotFoundError, WorkflowValidationError, ValueError)):
             load_workflow("no_such_workflow")
+
+    def test_api_workflow_definition_uses_validated_loader(self) -> None:
+        from agent_platform.api.main import get_workflow_definition
+
+        body = get_workflow_definition("securities_analysis")
+
+        assert body["workflow_id"] == "securities_analysis"
+        assert any(node["id"] == "evaluator_agent" for node in body["nodes"])
+        assert any(edge["from"] == "evaluator_agent" for edge in body["edges"])
+
+    def test_frontend_renders_definition_driven_topology(self) -> None:
+        html = (_ROOT / "frontend_prototype.html").read_text(encoding="utf-8")
+
+        assert 'id="workflow-topology"' in html
+        assert "/workflows/securities_analysis" in html
+        assert "renderWorkflowTopology" in html
+        assert "definition.edges.forEach" in html
 
     @pytest.mark.parametrize(
         "target, expected",
@@ -599,9 +616,9 @@ class TestSecuritiesWorkflowMatchesCode:
         )
         assert sorted(wf.node_ids()) == compiled_node_ids
 
-    def test_node_count_is_eleven(self, compiled_node_ids: list[str]) -> None:
-        """真实图有 11 个业务节点；数量变化必须是有意识的改动。"""
-        assert len(compiled_node_ids) == 11
+    def test_node_count_is_twelve(self, compiled_node_ids: list[str]) -> None:
+        """真实图有 12 个业务节点；数量变化必须是有意识的改动。"""
+        assert len(compiled_node_ids) == 12
 
     def test_declared_engine_and_implementation(self, wf: WorkflowDefinition) -> None:
         assert wf.engine == "langgraph"
@@ -1052,6 +1069,14 @@ class TestWeatherWorkflowMatchesCode:
 # ══════════════════════════════════════════════════════════════════════════════
 # 文档
 # ══════════════════════════════════════════════════════════════════════════════
+
+def test_frontend_reuses_localized_status_badge_after_state_refresh() -> None:
+    frontend = (_ROOT / "frontend_prototype.html").read_text(encoding="utf-8")
+    start = frontend.index("function updateStatusCard")
+    body = frontend[start:start + 2200]
+    assert "updateStatusBadge(data.status || 'not_found')" in body
+    assert "badge.textContent = data.status" not in body
+
 
 class TestWorkflowReadme:
     """Workflow/README.md 必须存在并解释清楚每个文件的用途。"""

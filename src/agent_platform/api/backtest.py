@@ -87,9 +87,14 @@ class BacktestResponse(BaseModel):
     total_trades: int
     winning_trades: int
     losing_trades: int
+    avg_win_pct: float
+    avg_loss_pct: float
+    profit_loss_ratio: float | None
+    profit_factor: float | None
     time_in_market_pct: float
     equity_curve: list[EquityPoint]
     trades: list[TradeOut]
+    benchmarks: dict[str, dict]
     source: str
     updated_at: str
     data_status: str
@@ -151,9 +156,20 @@ def backtest_strategy(req: BacktestRequest) -> BacktestResponse:
         total_trades=result.total_trades,
         winning_trades=result.winning_trades,
         losing_trades=result.losing_trades,
+        avg_win_pct=round(result.avg_win_pct, 4),
+        avg_loss_pct=round(result.avg_loss_pct, 4),
+        profit_loss_ratio=(
+            round(result.profit_loss_ratio, 4)
+            if result.profit_loss_ratio is not None else None
+        ),
+        profit_factor=(
+            round(result.profit_factor, 4)
+            if result.profit_factor is not None else None
+        ),
         time_in_market_pct=round(result.time_in_market_pct, 2),
         equity_curve=[EquityPoint(**point) for point in service.equity_curve],
         trades=[TradeOut(**trade) for trade in service.trades],
+        benchmarks=service.benchmarks,
         source=service.source,
         updated_at=service.updated_at,
         data_status=service.data_status,

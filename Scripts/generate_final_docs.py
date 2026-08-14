@@ -88,9 +88,35 @@ def bullets(doc, items):
         r = para.add_run(item); set_font(r)
 
 
+def _new_numbering_id(doc):
+    numbering = doc.part.numbering_part.element
+    style_num_id = doc.styles["List Number"]._element.pPr.numPr.numId.val
+    source = numbering.find(f"./w:num[@w:numId='{style_num_id}']", numbering.nsmap)
+    abstract_id = source.find("./w:abstractNumId", numbering.nsmap).get(qn("w:val"))
+    existing = [int(node.get(qn("w:numId"))) for node in numbering.findall("./w:num", numbering.nsmap)]
+    num_id = max(existing, default=0) + 1
+    num = OxmlElement("w:num")
+    num.set(qn("w:numId"), str(num_id))
+    abstract = OxmlElement("w:abstractNumId")
+    abstract.set(qn("w:val"), abstract_id)
+    num.append(abstract)
+    override = OxmlElement("w:lvlOverride")
+    override.set(qn("w:ilvl"), "0")
+    start = OxmlElement("w:startOverride")
+    start.set(qn("w:val"), "1")
+    override.append(start)
+    num.append(override)
+    numbering.append(num)
+    return num_id
+
+
 def steps(doc, items):
+    num_id = _new_numbering_id(doc)
     for item in items:
         para = doc.add_paragraph(style="List Number")
+        num_pr = para._p.get_or_add_pPr().get_or_add_numPr()
+        num_pr.get_or_add_ilvl().val = 0
+        num_pr.get_or_add_numId().val = num_id
         r = para.add_run(item); set_font(r)
 
 
@@ -197,7 +223,7 @@ def summary_doc():
     p(d, "回测保留原 Sharpe 公式、年化方式、无风险利率、0.5 阈值和 MA baseline。当前已完成成本、滑点、印花税、连续仓位、Walk-forward、样本外对比和基准收益记录，但策略研究结果仍未稳定达到 Sharpe 0.5。正式基线多因子样本外均值约为 -0.337；本轮预先定义的稳健选参挑战方案实测为 -0.499，未带来改善，因此没有替换正式基线。")
     d.add_heading("九、质量验证", 1)
     table(d, ["门禁", "结果/状态", "证据"], [
-        ("单元与集成测试", "1622 项收集；1621 passed，1 skipped，0 failed", "2026-08-14 pytest"),
+        ("单元与集成测试", "1658 项收集；1657 passed，1 skipped，0 failed", "2026-08-14 pytest"),
         ("静态检查", "pyflakes、compileall 已通过", "命令输出"),
         ("前端语法", "已通过", "Scripts/check_frontend_syntax.js"),
         ("敏感信息", "API Key 不写入代码、文档、日志或 Git", ".env 与报告审计"),
@@ -218,16 +244,25 @@ def summary_doc():
         "扩大真实 LLM 回放任务和多日期运行，形成可统计的 Schema、拦截、延迟和重试样本。",
         "自然运行模拟盘至少 7-14 个真实交易日后，再决定是否满足时间证据要求。",
         "继续采用严格样本外和多基准验证改进策略，保留原始 baseline 和公式。",
-        "生产化前补充密钥管理、用户级隔离、监控告警、备份恢复、审计保留策略和部署演练。",
+        "需要多主机扩容时迁移 PostgreSQL、Redis 分布式限流、集中式密钥管理和独立调度 worker。",
     ])
-    d.add_heading("十二、免责声明", 1)
+    d.add_heading("十二、交付与服务器更新", 1)
+    p(d, "当前交付只保留一套 FastAPI 后端和一个 HTML 主前端。Rule、Skill、Workflow、MCP、SubAgents、tests 和实验原始证据属于任务书验收内容；本机 .env、.venv、SQLite、日志、缓存和压缩包不进入 Git 或服务器源代码包。损坏重复部署文档、协作日志、旧冒烟报告和废弃 final 报告别名已清理。")
+    steps(d, [
+        "完成测试后提交 Git，再用 git archive --format=zip --output agent-platform.zip HEAD 生成干净部署包。",
+        "首次部署把压缩包上传到服务器 /tmp，解压后执行 deploy/install_demo.sh。",
+        "更新已有服务器前先运行 sudo agent-platform-backup，再将新版解压到新的 /tmp 目录。",
+        "使用与首次部署相同的 IP 或域名参数再次执行安装脚本；脚本保留 .env.production 和 data/。",
+        "更新后检查 docker compose ps、/health、/ready 和容器日志，再验证登录、样例分析与 MockBroker。",
+    ])
+    d.add_heading("十三、免责声明", 1)
     p(d, "本系统用于 Agent 工程、数据流程、风控和研究方法演示。证券分析结果不构成投资建议；联网数据可能延迟、缺失或受第三方接口限制；严禁把模拟盘结果当作真实收益，也不得在未完成生产安全审查前接入真实交易。")
     d.save(DOCS / "项目总结文档.docx")
 
 
 def beginner_doc():
     d = Document(); setup(d, "项目小白说明文档")
-    callout(d, "当前事实", "截至 2026-08-14：1622 项测试收集，1621 passed、1 skipped、0 failed；正式样本外 Sharpe 约 -0.337，未达到 0.5；真实行情模拟盘证据为 1/7 天。", AMBER)
+    callout(d, "当前事实", "截至 2026-08-14：1658 项测试收集，1657 passed、1 skipped、0 failed；正式样本外 Sharpe 约 -0.337，未达到 0.5；真实行情模拟盘证据为 1/7 天。", AMBER)
     callout(d, "先看结论", "你可以把这个项目理解成“一个会调用数据、多个专业分析员协作、还会自我检查并等待人批准的研究系统”。它能做研究演示和模拟交易，但不会自动拿你的钱去真实买股票。", GREEN)
     d.add_heading("第一部分：先建立整体画面", 1)
     d.add_heading("1. 这个项目到底做什么？", 2)
@@ -333,7 +368,17 @@ def beginner_doc():
     ], [4.0, 5.0, 7.0])
     d.add_heading("第十二部分：面试时怎么讲", 1)
     p(d, "可以这样说：‘我做的是一个研究型 Agent 平台，不是直接下单的交易系统。后端用 FastAPI，使用 Provider 抽象统一样例和联网数据，用 LangGraph 把四个 Specialist Agent、综合、交易建议和风控组织成可恢复状态图，SQLite 保存会话和 checkpoint。模型输出先经过 JSON Schema、事实核验指标和 Guardrail，再在高风险节点触发人工审批。Risk Manager 按参考价、止损价和仓位计算单笔账户风险，限制在 2% 内。模拟盘只使用 MockBroker，真实行情运行证据当前为 1/7 天。真实 DeepSeek 已完成 100 条回放，但 Sharpe 样本外仍未稳定达到 0.5。’")
-    d.add_heading("第十三部分：你必须记住的边界", 1)
+    d.add_heading("第十三部分：上传服务器（小白版）", 1)
+    p(d, "服务器可以理解为一台一直开机、别人能通过网址访问的远程电脑。当前方案使用 Docker 装应用，用 Nginx 接收浏览器请求；程序内部仍是同一个 HTML 前端和 FastAPI 后端。")
+    steps(d, [
+        "先在自己电脑确认测试通过，把当前修改提交到 Git。",
+        "在项目目录生成 agent-platform.zip。Git archive 只打包已经提交的项目文件，不会把 .env、.venv 和本地数据库装进去。",
+        "在阿里云远程连接页面把压缩包上传到服务器 /tmp。",
+        "第一次安装使用 deploy/install_demo.sh，并传入公网 IP 或域名。",
+        "以后更新先运行 sudo agent-platform-backup，再上传新版压缩包并重新执行同一安装命令。服务器账号、密钥和数据库会保留。",
+        "更新结束后访问网页并检查登录、行情、天气、样例分析和模拟盘；模拟盘仍然不会真实下单。",
+    ])
+    d.add_heading("第十四部分：你必须记住的边界", 1)
     bullets(d, [
         "样例数据是为了可重复测试，不是实时行情。",
         "联网数据也可能延迟，必须看来源、更新时间和状态。",

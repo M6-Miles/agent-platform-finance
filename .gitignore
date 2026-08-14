@@ -42,6 +42,7 @@ htmlcov/
 # 只写 .venv/ 会把 13MB 的 .venv-1 漏进仓库。
 .venv*/
 venv/
+node_modules/
 
 # 操作系统
 .DS_Store
@@ -64,3 +65,7 @@ Thumbs.db
 data/real/
 data/real_delisted/
 data/checkpoints/
+
+# 临时 LLM 冒烟报告；正式证据只保留 daily 归档与 latest 索引
+docs/experiments/*_smoke_latest.json
+docs/experiments/*_smoke_latest.md

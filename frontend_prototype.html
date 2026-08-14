@@ -4,37 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Harness Agent 投研平台 v2.0</title>
-  <!-- Tailwind CSS v3 CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Fonts: Inter + JetBrains Mono -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            sidebar: '#0F172A',
-            primary:  '#3B82F6',
-            success:  '#10B981',
-            warning:  '#F59E0B',
-            danger:   '#EF4444',
-            surface:  '#F8FAFC',
-            muted:    '#94A3B8',
-            border:   '#E2E8F0',
-            dark:     '#1E293B',
-          },
-          fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-            mono: ['"JetBrains Mono"', 'Consolas', 'monospace'],
-          },
-        }
-      }
-    }
-  </script>
+  <link rel="stylesheet" href="/assets/app.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; background: #F8FAFC; font-family: 'Inter', sans-serif; font-size: 14px; color: #1E293B; }
+    html, body { height: 100%; margin: 0; background: #F8FAFC; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 14px; color: #1E293B; }
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 2px; }
     /* 三点跳动加载动画 */
@@ -65,10 +38,51 @@
     /* 对话页需要 flex 布局 */
     #page-chat.active { display: flex !important; flex-direction: column; height: calc(100vh - 56px); }
     /* 侧边栏固定 */
-    #sidebar { width: 260px; min-width: 260px; height: 100vh; overflow-y: auto; position: fixed; left: 0; top: 0; background: #0F172A; }
-    #main-content { margin-left: 260px; width: calc(100% - 260px); min-height: 100vh; background: #fff; }
+    #sidebar { width: 260px; min-width: 260px; height: 100vh; overflow-y: auto; position: fixed; left: 0; top: 0; z-index: 60; background: #0F172A; }
+    #main-content { margin-left: 260px; width: calc(100% - 260px); min-width: 0; min-height: 100vh; background: #fff; }
+    #mobile-nav-toggle, #mobile-sidebar-overlay { display: none; }
+    @media (max-width: 767px) {
+      #sidebar {
+        transform: translateX(-100%);
+        transition: transform .2s ease;
+        box-shadow: 12px 0 30px rgba(15, 23, 42, .25);
+      }
+      #sidebar.mobile-open { transform: translateX(0); }
+      #main-content { margin-left: 0; width: 100%; }
+      #mobile-nav-toggle {
+        display: inline-flex;
+        width: 36px;
+        height: 36px;
+        flex: 0 0 36px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #E2E8F0;
+        border-radius: 6px;
+        background: #fff;
+        color: #334155;
+        font-size: 20px;
+      }
+      #mobile-sidebar-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 55;
+        background: rgba(15, 23, 42, .45);
+      }
+      #mobile-sidebar-overlay.mobile-open { display: block; }
+      #main-content > header { padding-left: 12px; padding-right: 12px; gap: 10px; }
+      #main-content > header #page-subtitle { display: none; }
+      #main-content > header .ml-auto { gap: 6px; }
+      #main-content > header #backend-provider-badge { display: none; }
+      .page.active { padding: 16px !important; }
+      #page-simtrade > .grid { grid-template-columns: minmax(0, 1fr) !important; }
+      #bt-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+      #weather-live-current { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+      #weather-live-daily { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+      #provider-health-strip { overflow-x: auto; white-space: nowrap; }
+      table { min-width: max-content; }
+    }
     /* 数字等宽 */
-    .num { font-family: 'JetBrains Mono', monospace; }
+    .num { font-family: Consolas, 'SFMono-Regular', monospace; }
   </style>
 </head>
 <body>
@@ -238,10 +252,12 @@
     </div>
   </div>
 </aside>
+<button id="mobile-sidebar-overlay" type="button" aria-label="关闭导航菜单" onclick="toggleMobileSidebar(false)"></button>
 <!-- 主内容区 -->
 <div id="main-content" class="flex flex-col">
   <!-- 顶栏 -->
   <header class="h-14 border-b border-slate-200 flex items-center px-6 gap-4 sticky top-0 bg-white z-40">
+    <button id="mobile-nav-toggle" type="button" aria-label="打开导航菜单" aria-expanded="false" onclick="toggleMobileSidebar()">&#9776;</button>
     <div>
       <h2 id="page-title" class="text-base font-semibold text-slate-900">证券分析</h2>
       <p id="page-subtitle" class="text-xs text-slate-500">技术指标 · AI 投研信号 · 多维度分析</p>
@@ -253,6 +269,14 @@
       </span>
     </div>
   </header>
+  <div id="provider-health-strip" class="border-b border-slate-100 bg-slate-50 px-4 sm:px-6 py-1.5 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+    <span>外部服务：</span>
+    <span id="provider-health-market">行情 检查中</span>
+    <span id="provider-health-weather">天气 检查中</span>
+    <span id="provider-health-llm">DeepSeek 检查中</span>
+    <span id="provider-health-database">数据库 检查中</span>
+    <button id="provider-health-refresh-btn" type="button" onclick="loadProviderHealth(true)" class="ml-auto text-blue-600 hover:text-blue-700 disabled:text-slate-400" title="立即重新检查公开行情和天气；不会调用付费大模型">重新检查</button>
+  </div>
   <!-- 页面内容 -->
   <div class="flex-1 overflow-y-auto">
     <!-- ═══ Page 1: 证券分析 ═══ -->
@@ -342,8 +366,9 @@
       </div>
       <!-- 底部操作 -->
       <div class="flex justify-end gap-3">
-        <button class="border border-slate-200 hover:border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm transition-colors">📊 导出 Excel</button>
-        <button class="border border-slate-200 hover:border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm transition-colors">📄 导出 HTML</button>
+        <span id="analysis-export-status" class="self-center text-xs text-slate-500" aria-live="polite"></span>
+        <button id="analysis-export-xlsx" type="button" onclick="downloadAnalysisReport('xlsx', this)" disabled class="border border-slate-200 hover:border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">📊 导出 Excel</button>
+        <button id="analysis-export-html" type="button" onclick="downloadAnalysisReport('html', this)" disabled class="border border-slate-200 hover:border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">📄 导出 HTML</button>
       </div>
     </div>
     <!-- ═══ Page 2: 多股对比 ═══ -->
@@ -526,6 +551,10 @@
         <h3 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
           <span>🔄</span> LangGraph 执行流程
         </h3>
+        <div id="workflow-topology-scroll" class="overflow-x-auto mb-4 border-b border-slate-100 pb-4">
+          <div id="workflow-topology" class="relative min-h-24"></div>
+        </div>
+        <div class="text-xs font-medium text-slate-500 mb-2">节点执行明细</div>
         <div id="workflow-steps" class="space-y-2"></div>
       </div>
 
@@ -538,6 +567,10 @@
       <!-- 综合分析 -->
       <div id="synthesis-container" class="hidden mb-4">
         <div id="synthesis-card" class="bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-blue-300 rounded-lg p-4 shadow-sm"></div>
+      </div>
+
+      <div id="evaluator-container" class="hidden mb-4">
+        <div id="evaluator-card" class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm"></div>
       </div>
 
       <!-- 人工审批面板 -->
@@ -613,6 +646,7 @@
         <div id="bt-metrics" class="grid grid-cols-5 gap-3"></div>
         <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
           <h3 class="text-sm font-medium text-slate-700 mb-3">净值曲线（初始=1.0）</h3>
+          <div id="bt-benchmark-summary" class="mb-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600" aria-live="polite"></div>
           <svg id="svg-equity" class="w-full" height="200"></svg>
         </div>
         <div class="bg-white border border-slate-200 rounded-lg shadow-sm overflow-x-auto">
@@ -686,6 +720,13 @@
                 <label class="block text-xs font-medium text-slate-600 mb-1.5">限价</label>
                 <input id="st-limit" type="number" step="0.01" placeholder="输入限价" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
               </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div><label class="block text-xs font-medium text-slate-600 mb-1.5">止损价（可选）</label>
+                  <input id="st-stop-loss" type="number" min="0" step="0.01" placeholder="低于买入价" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label class="block text-xs font-medium text-slate-600 mb-1.5">止盈价（可选）</label>
+                  <input id="st-take-profit" type="number" min="0" step="0.01" placeholder="高于买入价" class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" /></div>
+              </div>
+              <p class="text-xs text-slate-400">买入时可同时设置，行情刷新触发后仅由本地 MockBroker 平仓。</p>
               <button id="place-order-btn" onclick="placeOrder()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">📋 提交订单</button>
             </div>
           </div>
@@ -733,12 +774,13 @@
             <div id="st-order-status" class="text-xs text-slate-500 mt-1" aria-live="polite"></div>
           </div>
           <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
-            <h3 class="text-sm font-semibold text-slate-800 mb-3">连续交易日模拟</h3>
+            <h3 class="text-sm font-semibold text-slate-800 mb-1">历史交易日快速回放</h3>
+            <p class="text-xs text-slate-400 mb-3">用历史行情在数秒内回放策略，不代表实时交易或自然日运行证据。</p>
             <div class="grid grid-cols-2 gap-2 mb-2">
               <input id="paper-run-symbols" value="DEMO001" placeholder="代码，逗号分隔" class="input-field border border-slate-200 rounded-lg px-3 py-2 text-sm" />
               <input id="paper-run-days" type="number" min="1" max="250" value="20" placeholder="交易日数量（1-250）" aria-label="请求交易日数量" class="input-field border border-slate-200 rounded-lg px-3 py-2 text-sm" />
             </div>
-            <button id="paper-run-btn" onclick="runContinuousPaperTrading()" class="w-full border border-blue-200 text-blue-600 hover:border-blue-400 py-2 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed">运行连续模拟</button>
+            <button id="paper-run-btn" onclick="runContinuousPaperTrading()" class="w-full border border-blue-200 text-blue-600 hover:border-blue-400 py-2 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed">开始历史回放</button>
             <div id="paper-run-status" class="text-xs text-slate-500 mt-2" aria-live="polite"></div>
             <div id="paper-run-result" class="text-xs text-slate-500 mt-2"></div>
             <div class="border-t border-slate-100 mt-4 pt-4">
@@ -778,9 +820,10 @@
                 <th class="px-3 py-2 text-right font-medium text-slate-600">均价</th>
                 <th class="px-3 py-2 text-right font-medium text-slate-600">现价</th>
                 <th class="px-3 py-2 text-right font-medium text-slate-600">浮盈亏</th>
+                <th class="px-3 py-2 text-right font-medium text-slate-600">止损 / 止盈</th>
               </tr></thead>
               <tbody id="st-positions-body" class="divide-y divide-slate-100">
-                <tr><td colspan="5" class="px-3 py-4 text-center text-slate-400">暂无持仓</td></tr>
+                <tr><td colspan="6" class="px-3 py-4 text-center text-slate-400">暂无持仓</td></tr>
               </tbody>
             </table>
           </div>
@@ -1241,6 +1284,59 @@ async function loadBackendHealth() {
     statusBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-green-500 rounded-full inline-block"></span>后端在线';
   }
 }
+
+function providerStateLabel(value) {
+  const labels = {
+    real_time:'实时', live:'实时', delayed:'延迟', cached:'缓存', cache:'缓存',
+    degraded:'降级', unavailable:'不可用', not_configured:'未配置',
+    configured_not_probed:'已配置（未调用）', unknown:'等待检查', offline_sample:'离线样例'
+  };
+  return labels[value] || value || '未知';
+}
+
+async function loadProviderHealth(refresh = false) {
+  const button = document.getElementById('provider-health-refresh-btn');
+  const originalText = button?.textContent || '重新检查';
+  if (refresh && button) {
+    button.disabled = true;
+    button.textContent = '检查中…';
+  }
+  const path = `/health/providers${refresh ? '?refresh=true' : ''}`;
+  const payload = await callApi(path, {
+    signal: AbortSignal.timeout(refresh ? 20000 : 5000),
+  });
+  const providers = payload?.providers || {};
+  const render = (id, label, item) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const state = item?.status || 'unavailable';
+    const good = ['real_time', 'live', 'configured_not_probed'].includes(state);
+    const warn = ['delayed', 'cached', 'cache', 'degraded', 'not_configured', 'offline_sample'].includes(state);
+    el.className = good ? 'text-green-700' : warn ? 'text-amber-700' : 'text-red-600';
+    el.textContent = `${label} ${providerStateLabel(state)}`;
+    const retry = Number(item?.retry_after_s || 0);
+    el.title = [
+      item?.source ? `来源：${item.source}` : '',
+      item?.last_success_at ? `最近成功：${item.last_success_at}` : '',
+      item?.last_data_at ? `数据时间：${item.last_data_at}` : '',
+      `成功率：${Number(item?.success_rate_pct || 0).toFixed(1)}%`,
+      `P95：${Number(item?.latency_p95_ms || 0).toFixed(0)} ms`,
+      retry ? `退避剩余：${retry.toFixed(1)} 秒` : '',
+    ].filter(Boolean).join('\n');
+  };
+  render('provider-health-market', '行情', providers.market_quote);
+  render('provider-health-weather', '天气', providers.open_meteo);
+  render('provider-health-llm', 'DeepSeek', providers.deepseek);
+  render('provider-health-database', '数据库', providers.database);
+  if (refresh && button) {
+    button.disabled = false;
+    button.textContent = payload ? '检查完成' : '检查失败';
+    button.title = payload
+      ? `完成时间：${payload.checked_at || new Date().toLocaleString()}；未调用付费大模型`
+      : getApiFailure(path, '外部服务检查失败').message;
+    setTimeout(() => { button.textContent = originalText; }, 1800);
+  }
+}
 /** POST JSON 的便捷封装，返回 null 表示失败（错误信息见 window._lastApiError） */
 async function postApi(path, payload) {
   return callApi(path, {
@@ -1363,11 +1459,11 @@ function formatResearchValue(value) {
 function formatFinalAction(action) {
   if (!action) return null;
   const map = {
-    'execute': '🟢 Execute - 允许执行',
-    'manual_review': '🟡 Manual Review - 需要人工复核',
-    'block': '🔴 Block - 已阻断',
-    'no_trade': '⚪ No Trade - 不交易',
-    'failed': '❌ Failed - 执行失败'
+    'execute': '允许进入本地模拟流程',
+    'manual_review': '需要人工复核',
+    'block': '已阻断',
+    'no_trade': '不生成交易建议',
+    'failed': '执行失败'
   };
   return map[action] || action;
 }
@@ -1400,6 +1496,13 @@ function updateStatusBadge(status) {
   }[status] || status;
 
   badge.textContent = statusText;
+  badge.title = {
+    interrupted:'工作流已安全暂停，等待人工审批；不是运行卡死。',
+    blocked:'风控或检查未通过，后续交易链已停止。',
+    no_trade:'置信度不足，按规则不生成交易建议。',
+    failed:'运行发生错误，请查看错误明细后重试。',
+    completed:'本次工作流已完成。'
+  }[status] || '';
   badge.className = `inline-block px-2 py-1 rounded text-xs font-medium ${getStatusColorClass(status)}`;
 }
 
@@ -1436,6 +1539,20 @@ function navigate(page) {
     stopBrokerAutoRefresh('离开模拟盘，自动刷新已暂停');
   }
   document.getElementById('user-menu').classList.add('hidden');
+  toggleMobileSidebar(false);
+}
+function toggleMobileSidebar(forceOpen) {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('mobile-sidebar-overlay');
+  const toggle = document.getElementById('mobile-nav-toggle');
+  if (!sidebar || !overlay || !toggle) return;
+  const open = typeof forceOpen === 'boolean'
+    ? forceOpen
+    : !sidebar.classList.contains('mobile-open');
+  sidebar.classList.toggle('mobile-open', open);
+  overlay.classList.toggle('mobile-open', open);
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.setAttribute('aria-label', open ? '关闭导航菜单' : '打开导航菜单');
 }
 function enterApplication() {
   document.getElementById('login-page').classList.add('hidden');
@@ -1887,6 +2004,13 @@ async function runAnalysisTask() {
   const startVal = document.getElementById('a-start').value || '2025-01-02';
   const endVal   = document.getElementById('a-end').value   || '2025-12-31';
   const dataMode = document.getElementById('analysis-data-mode')?.value || 'auto';
+  window._latestAnalysisParams = null;
+  ['analysis-export-xlsx', 'analysis-export-html'].forEach(id => {
+    const button = document.getElementById(id);
+    if (button) button.disabled = true;
+  });
+  const exportStatus = document.getElementById('analysis-export-status');
+  if (exportStatus) exportStatus.textContent = '';
 
   // 骨架屏占位，同时清掉上一次结果，避免新请求失败时继续显示旧行情。
   document.getElementById('a-metrics').innerHTML =
@@ -2010,7 +2134,57 @@ async function runAnalysisTask() {
     JSON.stringify(analysis).length,
   );
   await initSidebar();
+  window._latestAnalysisParams = {symbol, start: startVal, end: endVal, dataMode};
+  ['analysis-export-xlsx', 'analysis-export-html'].forEach(id => {
+    const button = document.getElementById(id);
+    if (button) button.disabled = false;
+  });
   return true;
+}
+
+async function downloadAnalysisReport(format, button) {
+  const params = window._latestAnalysisParams;
+  const status = document.getElementById('analysis-export-status');
+  if (!params) {
+    if (status) status.textContent = '请先成功运行一次证券分析';
+    return;
+  }
+  const originalText = button?.textContent || '';
+  if (button) { button.disabled = true; button.textContent = '生成中…'; }
+  if (status) status.textContent = '正在生成报告…';
+  const query = new URLSearchParams({
+    start: params.start,
+    end: params.end,
+    data_mode: params.dataMode,
+    format,
+  });
+  try {
+    const response = await authFetch(`${API_BASE}/analysis/${encodeURIComponent(params.symbol)}/export?${query}`, {
+      signal: AbortSignal.timeout(90000),
+    });
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try { detail = (await response.json())?.detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('content-disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match?.[1] || `security_analysis_${params.symbol}.${format}`;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (status) status.textContent = `${format === 'xlsx' ? 'Excel' : 'HTML'} 报告已下载`;
+  } catch (error) {
+    if (status) status.textContent = `导出失败：${error.message}`;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = originalText; }
+  }
 }
 
 /**
@@ -2505,6 +2679,140 @@ async function startDeepResearch() {
   }
 }
 
+let securitiesWorkflowDefinition = null;
+let securitiesWorkflowDefinitionPromise = null;
+let latestWorkflowState = null;
+
+async function loadSecuritiesWorkflowDefinition() {
+  if (securitiesWorkflowDefinition) return securitiesWorkflowDefinition;
+  if (!securitiesWorkflowDefinitionPromise) {
+    securitiesWorkflowDefinitionPromise = authFetch(`${API_BASE}/workflows/securities_analysis`, {
+      signal: AbortSignal.timeout(10000),
+    }).then(async response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      securitiesWorkflowDefinition = await response.json();
+      return securitiesWorkflowDefinition;
+    }).catch(error => {
+      console.error('Workflow definition load failed:', error);
+      return null;
+    }).finally(() => { securitiesWorkflowDefinitionPromise = null; });
+  }
+  return securitiesWorkflowDefinitionPromise;
+}
+
+function workflowNodeVisual(nodeId, state, traceByNode, executed) {
+  const terminal = ['completed', 'blocked', 'no_trade', 'failed'].includes(state.status);
+  const payload = state.interrupt_payload || {};
+  const waitingNode = payload.type === 'debate_review' ? 'debate_approval'
+    : payload.type === 'har_approval' ? 'human_approval'
+    : payload.reason === 'preflight_manual_review' ? 'trading_harness' : null;
+  if (nodeId === '__start__') return {className:'border-green-400 bg-green-50', text:'已启动', help:'工作流已开始执行'};
+  if (nodeId === '__end__') return terminal
+    ? {className:'border-green-400 bg-green-50', text:'已结束', help:'工作流已到达结束节点'}
+    : {className:'border-slate-300 bg-slate-50', text:'等待', help:'前置节点尚未完成'};
+  if (waitingNode === nodeId) return {className:'border-amber-400 bg-amber-50', text:'待审批', help:'工作流在此暂停，等待人工确认后继续'};
+  const trace = traceByNode[nodeId];
+  if (executed.has(nodeId)) return trace?.status === 'error'
+    ? {className:'border-red-400 bg-red-50', text:'失败', help:'该节点执行时发生错误，请查看节点明细'}
+    : {className:'border-green-400 bg-green-50', text:'已执行', help:'该节点已在本次工作流中完成'};
+  return terminal
+    ? {className:'border-slate-200 bg-slate-50', text:'已跳过', help:'条件分支未选择该节点，这不是执行失败'}
+    : {className:'border-slate-300 bg-white', text:'等待', help:'正在等待前置节点或条件判断'};
+}
+
+function formatWorkflowBranch(value) {
+  const labels = {
+    no_trade:'不生成交易建议', trader_agent:'进入交易建议', human_approval:'需要人工审批',
+    risk_manager:'进入风险管理', approve:'审批通过', reject:'审批拒绝',
+    execute:'允许模拟执行', manual_review:'转人工复核', block:'阻断',
+    __end__:'结束', completed:'完成', failed:'失败'
+  };
+  return labels[String(value)] || String(value || '');
+}
+
+function renderWorkflowTopology(definition, state, traceByNode, executed) {
+  const target = document.getElementById('workflow-topology');
+  if (!target) return;
+  if (!definition || !Array.isArray(definition.nodes) || !Array.isArray(definition.edges)) {
+    target.innerHTML = '<div class="text-xs text-amber-600 py-3">DAG 定义暂不可用，节点明细仍可正常查看。</div>';
+    return;
+  }
+  const virtualNodes = [
+    {id:'__start__', title:'开始'},
+    ...definition.nodes.map(node => ({id:node.id, title:node.title || node.id})),
+    {id:'__end__', title:'结束'},
+  ];
+  const edges = [];
+  definition.edges.forEach(edge => {
+    if (edge.type === 'conditional') {
+      (edge.branches || []).forEach(branch => edges.push({
+        from:edge.from, to:branch.to, conditional:true,
+        label:formatWorkflowBranch(branch.value || ''),
+      }));
+    } else if (edge.to) {
+      edges.push({from:edge.from, to:edge.to, conditional:false, label:''});
+    }
+  });
+  const ids = new Set(virtualNodes.map(node => node.id));
+  const indegree = Object.fromEntries([...ids].map(id => [id, 0]));
+  const outgoing = Object.fromEntries([...ids].map(id => [id, []]));
+  edges.forEach(edge => {
+    if (!ids.has(edge.from) || !ids.has(edge.to)) return;
+    indegree[edge.to] += 1;
+    outgoing[edge.from].push(edge.to);
+  });
+  const levels = Object.fromEntries([...ids].map(id => [id, 0]));
+  const queue = [...ids].filter(id => indegree[id] === 0);
+  while (queue.length) {
+    const current = queue.shift();
+    outgoing[current].forEach(next => {
+      levels[next] = Math.max(levels[next], levels[current] + 1);
+      indegree[next] -= 1;
+      if (indegree[next] === 0) queue.push(next);
+    });
+  }
+  const groups = {};
+  virtualNodes.forEach(node => (groups[levels[node.id]] ||= []).push(node));
+  const nodeWidth = 150, nodeHeight = 64, rowGap = 66, colGap = 42, margin = 30;
+  const widest = Math.max(...Object.values(groups).map(group => group.length), 1);
+  const width = Math.max(760, margin * 2 + widest * nodeWidth + (widest - 1) * colGap);
+  const maxLevel = Math.max(...Object.keys(groups).map(Number));
+  const height = margin * 2 + (maxLevel + 1) * nodeHeight + maxLevel * rowGap;
+  const positions = {};
+  Object.entries(groups).forEach(([levelText, group]) => {
+    const level = Number(levelText);
+    const groupWidth = group.length * nodeWidth + (group.length - 1) * colGap;
+    const startX = (width - groupWidth) / 2;
+    group.forEach((node, index) => {
+      positions[node.id] = {
+        x:startX + index * (nodeWidth + colGap),
+        y:margin + level * (nodeHeight + rowGap),
+      };
+    });
+  });
+  const pathHtml = edges.map(edge => {
+    const from = positions[edge.from], to = positions[edge.to];
+    if (!from || !to) return '';
+    const x1 = from.x + nodeWidth / 2, y1 = from.y + nodeHeight;
+    const x2 = to.x + nodeWidth / 2, y2 = to.y;
+    const middle = (y1 + y2) / 2;
+    const label = edge.label && edge.label !== '__end__'
+      ? `<text x="${(x1+x2)/2}" y="${middle-4}" text-anchor="middle" font-size="9" fill="#64748b">${escapeHtml(edge.label)}</text>` : '';
+    return `<path d="M ${x1} ${y1} C ${x1} ${middle}, ${x2} ${middle}, ${x2} ${y2}" fill="none" stroke="${edge.conditional ? '#f59e0b' : '#94a3b8'}" stroke-width="1.5" ${edge.conditional ? 'stroke-dasharray="5 4"' : ''} marker-end="url(#dag-arrow)"/>${label}`;
+  }).join('');
+  const nodesHtml = virtualNodes.map(node => {
+    const pos = positions[node.id];
+    const visual = workflowNodeVisual(node.id, state, traceByNode, executed);
+    return `<div class="absolute border ${visual.className} rounded p-2 text-center shadow-sm" title="${escapeHtml(visual.help || '')}" style="left:${pos.x}px;top:${pos.y}px;width:${nodeWidth}px;height:${nodeHeight}px">
+      <div class="text-xs font-semibold text-slate-800 truncate" title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</div>
+      <div class="text-[11px] text-slate-500 mt-1">${visual.text}</div>
+    </div>`;
+  }).join('');
+  target.style.width = `${width}px`;
+  target.style.height = `${height}px`;
+  target.innerHTML = `<svg class="absolute inset-0" width="${width}" height="${height}" aria-label="证券分析 DAG 拓扑图"><defs><marker id="dag-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#94a3b8"></path></marker></defs>${pathHtml}</svg>${nodesHtml}`;
+}
+
 // 更新工作流可视化
 function updateWorkflowVisualization(state) {
   const container = document.getElementById('workflow-visualization');
@@ -2512,17 +2820,18 @@ function updateWorkflowVisualization(state) {
   container.classList.remove('hidden');
 
   const nodes = [
-    { key: 'technical_agent', label: '📊 Technical Agent', stateKey: 'technical_analysis' },
-    { key: 'fundamental_agent', label: '📈 Fundamental Agent', stateKey: 'fundamental_analysis' },
-    { key: 'industry_agent', label: '🏭 Industry Agent', stateKey: 'industry_analysis' },
-    { key: 'market_regime_agent', label: '🌏 Market Regime Agent', stateKey: 'market_regime' },
-    { key: 'synthesis_agent', label: '🤖 Synthesis Agent', stateKey: 'synthesis' },
+    { key: 'technical_agent', label: '技术分析', stateKey: 'technical_analysis' },
+    { key: 'fundamental_agent', label: '基本面分析', stateKey: 'fundamental_analysis' },
+    { key: 'industry_agent', label: '行业分析', stateKey: 'industry_analysis' },
+    { key: 'market_regime_agent', label: '大盘状态分析', stateKey: 'market_regime' },
+    { key: 'synthesis_agent', label: '综合研判', stateKey: 'synthesis' },
     { key: 'debate_approval', label: '🗣️ 辩论后人工复核', stateKey: 'interrupt_payload' },
-    { key: 'trader_agent', label: '💼 Trader Agent', stateKey: 'trade_signal' },
-    { key: 'human_approval', label: '👤 Human Approval', stateKey: 'interrupt_payload' },
-    { key: 'risk_manager', label: '⚠️ Risk Manager', stateKey: 'risk_result' },
-    { key: 'trading_harness', label: '🛡️ Trading Harness', stateKey: 'final_action' },
-    { key: 'no_trade', label: '⚪ No Trade', stateKey: 'status' }
+    { key: 'trader_agent', label: '交易建议', stateKey: 'trade_signal' },
+    { key: 'human_approval', label: '人工审批', stateKey: 'interrupt_payload' },
+    { key: 'risk_manager', label: '风险管理', stateKey: 'risk_result' },
+    { key: 'evaluator_agent', label: '独立质量评估', stateKey: 'evaluator_summary' },
+    { key: 'trading_harness', label: '交易前检查', stateKey: 'final_action' },
+    { key: 'no_trade', label: '不生成交易建议', stateKey: 'status' }
   ];
 
   // 真实执行轨迹：executed_nodes / trace_entries 由后端从 LangGraph state 派生，
@@ -2546,6 +2855,24 @@ function updateWorkflowVisualization(state) {
     && state.interrupt_payload?.type === 'har_approval';
   // 图是否已运行过（没有任何轨迹说明后端未返回 trace，退化为按数据判断）
   const hasTrace = traceEntries.length > 0 || executed.size > 0;
+  latestWorkflowState = state;
+  if (securitiesWorkflowDefinition) {
+    renderWorkflowTopology(securitiesWorkflowDefinition, state, traceByNode, executed);
+  } else {
+    loadSecuritiesWorkflowDefinition().then(definition => {
+      if (!definition || !latestWorkflowState) return;
+      const latestTrace = Array.isArray(latestWorkflowState.trace_entries)
+        ? latestWorkflowState.trace_entries : [];
+      const latestExecuted = new Set(
+        Array.isArray(latestWorkflowState.executed_nodes) && latestWorkflowState.executed_nodes.length
+          ? latestWorkflowState.executed_nodes
+          : latestTrace.map(entry => entry?.node).filter(Boolean)
+      );
+      const latestByNode = {};
+      latestTrace.forEach(entry => { if (entry?.node) latestByNode[entry.node] = entry; });
+      renderWorkflowTopology(definition, latestWorkflowState, latestByNode, latestExecuted);
+    });
+  }
 
   const stepsHtml = nodes.map(node => {
     let icon, statusText, colorClass;
@@ -2657,6 +2984,36 @@ function updateAgentResults(state) {
   if (state.synthesis) {
     showSynthesis(state.synthesis, state);
   }
+  renderEvaluatorSummary(state.evaluator_summary);
+}
+
+function renderEvaluatorSummary(summary) {
+  const container = document.getElementById('evaluator-container');
+  const card = document.getElementById('evaluator-card');
+  if (!container || !card) return;
+  if (!summary) {
+    container.classList.add('hidden');
+    return;
+  }
+  const evaluations = summary.evaluations || {};
+  const labels = { synthesis:'综合研判', trader:'交易建议', risk_manager:'风险管理' };
+  const rows = Object.entries(evaluations).map(([key, value]) => {
+    const score = Number(value.overall_score || 0);
+    const color = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600';
+    return `<div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+      <span class="text-sm text-slate-600">${escapeHtml(labels[key] || key)}</span>
+      <span class="num font-semibold ${color}">${score.toFixed(1)}/100</span>
+    </div>`;
+  }).join('');
+  const issues = Array.isArray(summary.issues) ? summary.issues : [];
+  card.innerHTML = `<div class="flex items-center justify-between mb-2">
+      <h3 class="text-sm font-semibold text-slate-800">独立质量评估</h3>
+      <span class="text-xs ${summary.requires_manual_review ? 'text-amber-700' : 'text-green-700'}">${summary.requires_manual_review ? '需要人工复核' : '质量检查通过'}</span>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-x-5">${rows}</div>
+    ${issues.length ? `<div class="mt-3 text-xs text-amber-700">${issues.map(escapeHtml).join('<br>')}</div>` : ''}
+    <div class="mt-2 text-xs text-slate-400">来源：${escapeHtml(summary.source || 'evaluator_agent')} · ${escapeHtml(summary.updated_at || '-')}</div>`;
+  container.classList.remove('hidden');
 }
 
 // 渲染技术分析 Agent 结果
@@ -2707,11 +3064,13 @@ function renderDataStatusBadge(dataStatus, fallbackReason, data = {}) {
     'historical': { label: '历史行情', color: 'bg-slate-100 text-slate-700', icon: '🔵' },
     'partial': { label: '部分可用', color: 'bg-orange-100 text-orange-700', icon: '🟠' },
     'stale': { label: '数据可能过期', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' },
+    'delayed': { label: '延迟数据', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' },
+    'cached': { label: '最近成功缓存', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' },
     'unavailable': { label: '数据不可用', color: 'bg-red-100 text-red-700', icon: '🔴' }
   };
 
   const config = statusConfig[effectiveStatus] || statusConfig['unavailable'];
-  const reasonHtml = (['fallback', 'partial', 'stale', 'unavailable'].includes(effectiveStatus)) && fallbackReason
+  const reasonHtml = (['fallback', 'partial', 'stale', 'delayed', 'cached', 'unavailable'].includes(effectiveStatus)) && fallbackReason
     ? `<div class="text-xs mt-1">原因: ${escapeHtml(fallbackReason)}</div>`
     : '';
 
@@ -3204,11 +3563,7 @@ function updateStatusCard(data) {
     : data.final_action;
   _set('status-data-context', `请求模式：${modeLabels[requested] || requested || '-'}；实际模式：${modeLabels[effective] || effective || '-'}${routed}；${qualityLabel}${actionLabel ? `；最终动作：${actionLabel}` : ''}`);
 
-  const badge = document.getElementById('status-badge');
-  if (badge) {
-    badge.textContent = data.status || '-';
-    badge.className = `inline-block px-2 py-1 rounded text-xs font-medium ${getStatusColorClass(data.status)}`;
-  }
+  updateStatusBadge(data.status || 'not_found');
 }
 
 // 轮询研究状态
@@ -3350,6 +3705,7 @@ async function runBacktestTask() {
   const tbody = document.getElementById('bt-trades-body');
   document.getElementById('bt-metrics').innerHTML = '<div class="col-span-5 text-center py-6 text-slate-400">正在加载历史行情并运行策略...</div>';
   document.getElementById('bt-meta').textContent = '';
+  document.getElementById('bt-benchmark-summary').textContent = '';
   document.getElementById('bt-trades-body').innerHTML = '';
   document.getElementById('svg-equity').innerHTML = '';
 
@@ -3383,6 +3739,10 @@ async function runBacktestTask() {
   const sharpe   = Number(result.sharpe_ratio);
   const maxDD    = Number(result.max_drawdown_pct);
   const winRate  = Number(result.win_rate_pct);
+  const plRatio  = result.profit_loss_ratio == null ? null : Number(result.profit_loss_ratio);
+  const profitFactor = result.profit_factor == null ? null : Number(result.profit_factor);
+  const avgWin = Number(result.avg_win_pct);
+  const avgLoss = Number(result.avg_loss_pct);
   const nTrades  = result.total_trades;
 
   const rc = totalRet >= 0 ? 'text-green-600' : 'text-red-600';
@@ -3391,8 +3751,12 @@ async function runBacktestTask() {
     { label:'夏普比率',  val: sharpe.toFixed(4), color: sharpe>=0.5?'text-green-600':'text-red-500' },
     { label:'最大回撤',  val:`-${Math.abs(maxDD)}%`,               color:'text-red-500' },
     { label:'胜率',      val:`${winRate}%`,                        color:'text-slate-700' },
+    { label:'平均盈利',  val: Number(result.winning_trades) ? `${avgWin.toFixed(2)}%` : 'N/A', color:'text-green-600', help:'没有盈利交易时无法计算' },
+    { label:'平均亏损',  val: Number(result.losing_trades) ? `${avgLoss.toFixed(2)}%` : 'N/A', color:'text-red-500', help:'没有亏损交易时无法计算' },
+    { label:'盈亏比',    val: plRatio == null ? 'N/A' : plRatio.toFixed(2), color:'text-slate-700', help:'必须同时存在盈利和亏损交易' },
+    { label:'Profit Factor', val: profitFactor == null ? 'N/A' : profitFactor.toFixed(2), color:'text-slate-700', help:'总盈利 / 总亏损；必须同时存在盈利和亏损交易' },
     { label:'交易次数',  val: nTrades,                             color:'text-slate-700' },
-  ].map(m=>`<div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+  ].map(m=>`<div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm" title="${escapeHtml(m.help || '')}">
     <p class="text-xs text-slate-500 mb-1">${m.label}</p>
     <p class="num text-xl font-bold ${m.color}">${m.val}</p>
   </div>`).join('');
@@ -3403,8 +3767,17 @@ async function runBacktestTask() {
   const navValues = equityCurve.map(e => Number(e.nav));
   const step = Math.max(1, Math.floor(dates.length / 8));
   const xLabels = dates.map((d, i) => i % step === 0 ? d : '');
+  const buyHoldCurve = result.benchmarks?.buy_and_hold?.equity_curve || [];
+  const maBenchmark = result.benchmarks?.ma_baseline || {};
+  const buyHoldBenchmark = result.benchmarks?.buy_and_hold || {};
+  document.getElementById('bt-benchmark-summary').innerHTML = `
+    <span class="inline-flex items-center gap-1.5"><span class="w-3 h-0.5 bg-blue-500" aria-hidden="true"></span>
+      MA5/MA20 基线：收益 ${escapeHtml(String(maBenchmark.total_return_pct ?? 'N/A'))}% · Sharpe ${escapeHtml(String(maBenchmark.sharpe_calendar ?? 'N/A'))}</span>
+    <span class="inline-flex items-center gap-1.5"><span class="w-3 h-0.5 bg-emerald-500" aria-hidden="true"></span>
+      同区间买入并持有：收益 ${escapeHtml(String(buyHoldBenchmark.total_return_pct ?? 'N/A'))}% · Sharpe ${escapeHtml(String(buyHoldBenchmark.sharpe_calendar ?? 'N/A'))}</span>`;
   drawLineChart('svg-equity', [
-    { label:'策略净值', values: navValues, color:'#3B82F6' },
+    { label:'MA5/MA20 策略', values: navValues, color:'#3B82F6' },
+    { label:'同区间买入并持有', values: buyHoldCurve.map(e => Number(e.nav)), color:'#10B981' },
   ], { xLabels });
 
   // 交易明细（列顺序与表头一致：入场日期/出场日期/入场价/出场价/收益率/信号）
@@ -3485,7 +3858,13 @@ function renderBacktestReport(result) {
     `年化波动率：${result.annualized_volatility_pct}%`,
     `最大回撤：${result.max_drawdown_pct}%`,
     `胜率：${result.win_rate_pct}%（${result.winning_trades} 胜 / ${result.losing_trades} 负，共 ${result.total_trades} 笔）`,
+    `平均盈利：${Number(result.winning_trades) ? result.avg_win_pct + '%' : 'N/A（没有盈利交易）'}`,
+    `平均亏损：${Number(result.losing_trades) ? result.avg_loss_pct + '%' : 'N/A（没有亏损交易）'}`,
+    `盈亏比：${result.profit_loss_ratio == null ? 'N/A（缺少盈利或亏损交易）' : result.profit_loss_ratio}`,
+    `Profit Factor：${result.profit_factor == null ? 'N/A（缺少盈利或亏损交易）' : result.profit_factor}`,
     `持仓时间占比：${result.time_in_market_pct}%`,
+    `MA5/MA20 基线：收益 ${result.benchmarks?.ma_baseline?.total_return_pct ?? 'N/A'}%，日历 Sharpe ${result.benchmarks?.ma_baseline?.sharpe_calendar ?? 'N/A'}`,
+    `同区间买入并持有：收益 ${result.benchmarks?.buy_and_hold?.total_return_pct ?? 'N/A'}%，日历 Sharpe ${result.benchmarks?.buy_and_hold?.sharpe_calendar ?? 'N/A'}`,
     `数据来源：${result.source}｜状态：${result.data_status}｜更新时间：${result.updated_at}`,
   ];
   if (result.fallback_reason) lines.push(`降级原因：${result.fallback_reason}`);
@@ -3529,6 +3908,10 @@ async function placeOrder() {
   const type = document.querySelector('[name="st-type"]:checked')?.value || 'market';
   const shares = parseInt(document.getElementById('st-qty')?.value) || 0;
   const lp   = parseFloat(document.getElementById('st-limit')?.value) || 0;
+  const stopLossRaw = document.getElementById('st-stop-loss')?.value.trim() || '';
+  const takeProfitRaw = document.getElementById('st-take-profit')?.value.trim() || '';
+  const stopLoss = stopLossRaw ? Number(stopLossRaw) : null;
+  const takeProfit = takeProfitRaw ? Number(takeProfitRaw) : null;
   const matchEl = document.getElementById('st-match-result');
   const statusEl = document.getElementById('st-order-status');
   const startedAt = performance.now();
@@ -3542,6 +3925,16 @@ async function placeOrder() {
     alert('限价单必须填写有效限价');
     return;
   }
+  if (side === 'buy' && ((stopLoss == null) !== (takeProfit == null))) {
+    alert('止损价和止盈价必须同时填写');
+    return;
+  }
+  if (side === 'buy' && stopLoss != null && (
+      !Number.isFinite(stopLoss) || !Number.isFinite(takeProfit) || stopLoss <= 0 || takeProfit <= 0 || stopLoss >= takeProfit
+  )) {
+    alert('保护价无效：止损价必须为正且低于止盈价');
+    return;
+  }
   brokerOperationBusy = true;
   if (matchEl) matchEl.innerHTML = '';
   if (orderBtn) { orderBtn.disabled = true; orderBtn.innerHTML = '⏳ 提交中…'; }
@@ -3552,7 +3945,8 @@ async function placeOrder() {
     const resp = await authFetch(`${API_BASE}/paper-trading/accounts/${encodeURIComponent(brokerAccountId)}/orders`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({symbol:sym, side, quantity:shares, order_type:type,
-        limit_price:type==='limit'?lp:null, data_mode:getDataSource(), request_id:requestId}),
+        limit_price:type==='limit'?lp:null, data_mode:getDataSource(), request_id:requestId,
+        stop_loss_price:side==='buy'?stopLoss:null, take_profit_price:side==='buy'?takeProfit:null}),
       signal: AbortSignal.timeout(45000),
     });
     const body = await resp.json().catch(()=>({}));
@@ -3613,7 +4007,9 @@ function hydrateBroker(body) {
   broker = {cash:Number(body.cash), total:Number(body.portfolio_value), pnl:Number(body.total_pnl),
     trades:Number(body.total_trades), positions:{}, orders:[], tickers};
   (body.positions || []).forEach(p => broker.positions[p.symbol] = {
-    sym:p.symbol, qty:Number(p.quantity), avgCost:Number(p.avg_cost), currentPrice:Number(p.current_price)
+    sym:p.symbol, qty:Number(p.quantity), avgCost:Number(p.avg_cost), currentPrice:Number(p.current_price),
+    stopLoss:p.stop_loss_price == null ? null : Number(p.stop_loss_price),
+    takeProfit:p.take_profit_price == null ? null : Number(p.take_profit_price)
   });
   broker.orders = (body.orders || []).slice().reverse().map(o => ({
     id:o.order_id, sym:o.symbol, side:o.side, type:o.order_type, qty:Number(o.quantity),
@@ -3628,7 +4024,8 @@ function cacheQuote(quote) {
     changePct:Number(quote.change_pct), name:quote.name||'', source:quote.source||'',
     dataStatus:quote.data_status||'', fallbackReason:quote.fallback_reason||null,
     updatedAt:quote.updated_at||'', cacheHit:Boolean(quote.quote_cache_hit),
-    quoteAgeS:Number(quote.quote_age_s||0), dataMode:getDataSource()};
+    quoteAgeS:Number(quote.quote_age_s||0), deliveryStatus:quote.delivery_status||'',
+    cacheTime:quote.cache_time||null, dataMode:getDataSource()};
 }
 
 /**
@@ -3741,8 +4138,9 @@ function renderTickerPanel(sym) {
     ? '<span class="text-slate-500">涨跌幅不可用</span>'
     : `<span class="${chgPct >= 0 ? 'text-green-600' : 'text-red-500'}">${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</span>`;
   const freshness = t.updatedAt ? `｜报价时间：${escapeHtml(t.updatedAt)}` : '';
-  const cacheInfo = t.cacheHit ? `｜缓存 ${Number(t.quoteAgeS || 0).toFixed(1)} 秒` : '｜本次新取';
-  const src = `<span class="ml-2 text-xs text-slate-400">来源：${escapeHtml(t.source || '未知')}${t.dataStatus ? '｜' + escapeHtml(t.dataStatus) : ''}${freshness}${cacheInfo}</span>`;
+  const delivery = providerStateLabel(t.deliveryStatus || t.dataStatus);
+  const cacheInfo = t.cacheHit ? `｜缓存年龄 ${Number(t.quoteAgeS || 0).toFixed(1)} 秒${t.cacheTime ? `（缓存时间 ${escapeHtml(t.cacheTime)}）` : ''}` : '｜本次新取';
+  const src = `<span class="ml-2 text-xs text-slate-400">来源：${escapeHtml(t.source || '未知')}｜${escapeHtml(delivery)}${freshness}${cacheInfo}</span>`;
   matchEl.innerHTML = `${chgHtml}${src}`;
 }
 
@@ -3823,7 +4221,10 @@ async function runContinuousPaperTradingTask() {
     const noTradeNote = Number(body.total_trades) === 0
       ? '｜该区间没有满足策略条件的交易信号，不代表任务未运行'
       : '';
-    if(out) out.innerHTML=`运行ID ${escapeHtml(body.run_id)}｜请求 ${days} 个交易日，实际 ${body.trading_days} 个交易日｜${body.total_trades} 笔成交｜总收益 ${Number(body.total_pnl_pct).toFixed(2)}%｜${escapeHtml(body.data_status)}${noTradeNote}`;
+    const replayStatus = body.data_status === 'live' ? '联网历史行情'
+      : body.data_status === 'offline_sample' ? '离线样例行情'
+      : providerStateLabel(body.data_status);
+    if(out) out.innerHTML=`运行ID ${escapeHtml(body.run_id)}｜请求 ${days} 个交易日，实际 ${body.trading_days} 个交易日｜${body.total_trades} 笔成交｜总收益 ${Number(body.total_pnl_pct).toFixed(2)}%｜${escapeHtml(replayStatus)}${noTradeNote}`;
     return true;
   } catch(e) {
     if(out) out.textContent=`运行失败：${e.message}`;
@@ -3876,11 +4277,18 @@ async function loadPaperMonitorJobs() {
   const schedulerText = scheduler?.running
     ? `调度器运行中（每 ${escapeHtml(scheduler.poll_interval_s)} 秒检查）`
     : '调度器未启动；任务可手动运行，但不会自动采集';
-  const calendarText = scheduler?.calendar_basis === 'weekday_candidate_only'
-    ? '当前按工作日候选日期采集；尚未接入交易所节假日日历'
+  const calendarText = scheduler?.calendar_authoritative
+    ? `A 股交易所日历已启用（覆盖至 ${escapeHtml(scheduler?.calendar_metadata?.covered_to || '—')}）`
+    : escapeHtml(scheduler?.calendar_limitation || '交易所日历状态未知');
+  const monitorMetrics = scheduler?.metrics || {};
+  const monitorText = Number(monitorMetrics.symbol_attempts || 0)
+    ? `行情成功率 ${Number(monitorMetrics.market_success_rate_pct || 0).toFixed(1)}%｜缓存命中率 ${Number(monitorMetrics.cache_hit_rate_pct || 0).toFixed(1)}%｜运行 P95 ${Number(monitorMetrics.run_latency_p95_ms || 0).toFixed(0)} ms｜失败标的 ${Number(monitorMetrics.symbol_failures || 0)}`
+    : '尚无长期监控运行指标';
+  const alertText = (monitorMetrics.alerts || []).length
+    ? `<div class="mt-1 text-red-600" title="${escapeHtml((monitorMetrics.alerts || []).map(item => `${item.date} ${item.message}`).join('\n'))}">告警 ${(monitorMetrics.alerts || []).length} 条（悬浮查看）</div>`
     : '';
   if (!jobs.length) {
-    container.innerHTML = `<div class="mb-1 ${scheduler?.running ? 'text-green-600' : 'text-amber-600'}">${schedulerText}</div><div class="mb-2 text-slate-400">${calendarText}</div><div>尚未创建长期监控任务</div>`;
+    container.innerHTML = `<div class="mb-1 ${scheduler?.running ? 'text-green-600' : 'text-amber-600'}">${schedulerText}</div><div class="text-slate-400">${calendarText}</div><div class="mb-2 text-slate-400">${monitorText}</div>${alertText}<div>尚未创建长期监控任务</div>`;
     return;
   }
   const rows = await Promise.all(jobs.map(async job => {
@@ -3903,7 +4311,7 @@ async function loadPaperMonitorJobs() {
       </div>
     </div>`;
   }));
-  container.innerHTML = `<div class="mb-1 ${scheduler?.running ? 'text-green-600' : 'text-amber-600'}">${schedulerText}</div><div class="mb-2 text-slate-400">${calendarText}</div>${rows.join('')}`;
+  container.innerHTML = `<div class="mb-1 ${scheduler?.running ? 'text-green-600' : 'text-amber-600'}">${schedulerText}</div><div class="text-slate-400">${calendarText}</div><div class="mb-2 text-slate-400">${monitorText}</div>${alertText}${rows.join('')}`;
 }
 
 async function runPaperMonitorJob(jobId, button) {
@@ -3969,12 +4377,12 @@ function updateBrokerUI() {
     pnlEl.className   = 'num text-lg font-bold ' + rc;
   }
 
-  // 持仓表（5列：代码/数量/均价/现价/浮盈亏）
+  // 持仓表（含本地保护价）
   const ptBody = document.getElementById('st-positions-body');
   if (ptBody) {
     const posArr = Object.values(broker.positions);
     if (posArr.length === 0) {
-      ptBody.innerHTML = '<tr><td colspan="5" class="px-3 py-4 text-center text-slate-400">暂无持仓</td></tr>';
+      ptBody.innerHTML = '<tr><td colspan="6" class="px-3 py-4 text-center text-slate-400">暂无持仓</td></tr>';
     } else {
       ptBody.innerHTML = posArr.map((pos,i) => {
         const tick = broker.tickers[pos.sym];
@@ -3987,6 +4395,7 @@ function updateBrokerUI() {
           <td class="px-3 py-2 text-sm num text-right">${pos.avgCost.toFixed(2)}</td>
           <td class="px-3 py-2 text-sm num text-right">${cur.toFixed(2)}</td>
           <td class="px-3 py-2 text-sm num text-right ${rc2}">${p2>=0?'+':''}${p2.toFixed(2)}</td>
+          <td class="px-3 py-2 text-xs num text-right text-slate-500">${pos.stopLoss == null ? '—' : pos.stopLoss.toFixed(2)} / ${pos.takeProfit == null ? '—' : pos.takeProfit.toFixed(2)}</td>
         </tr>`;
       }).join('');
     }
@@ -4256,7 +4665,7 @@ async function runWeatherAnalysis() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ city, temps, data_mode: dataMode }),
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(20000),
     });
 
     const data = await response.json();
@@ -4320,12 +4729,16 @@ function renderLiveWeather(forecast) {
     return;
   }
   container.classList.remove('hidden');
-  document.getElementById('weather-live-observed').textContent = `观测时间：${forecast.observed_at || '—'}`;
+  const weatherState = providerStateLabel(forecast.data_status || 'real_time');
+  const weatherCache = forecast.cache_time ? `｜缓存时间：${forecast.cache_time}` : '';
+  document.getElementById('weather-live-observed').textContent = `状态：${weatherState}｜观测时间：${forecast.observed_at || '—'}${weatherCache}`;
   const locationNote = document.getElementById('weather-location-note');
-  const isFallback = forecast.location_note?.includes('已回退');
+  const hasLocationNote = Boolean(
+    forecast.location_note && forecast.location_note !== '已按请求地点解析'
+  );
   if (locationNote) {
     locationNote.textContent = forecast.location_note || '';
-    locationNote.classList.toggle('hidden', !isFallback);
+    locationNote.classList.toggle('hidden', !hasLocationNote);
   }
   const currentItems = [
     ['天气', forecast.condition || '—'],
@@ -4609,6 +5022,7 @@ window.onload = () => {
   // 延迟初始化，等 DOM 完全就绪
   setTimeout(() => {
     loadBackendHealth();
+    loadProviderHealth(false);
     // 可观测性图表初始化
     initObsCharts();
   }, 300);

@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from agent_platform.config import get_settings  # noqa: E402
 from agent_platform.finance.paper_broker_service import PaperBrokerService  # noqa: E402
 from agent_platform.finance.paper_trading_monitor import PaperTradingMonitor  # noqa: E402
+from agent_platform.finance.trading_calendar import ChinaAStockCalendar  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,7 +36,9 @@ def main() -> int:
 
     settings = get_settings()
     broker = PaperBrokerService(settings.sqlite_path)
-    monitor = PaperTradingMonitor(settings.sqlite_path, broker)
+    monitor = PaperTradingMonitor(
+        settings.sqlite_path, broker, calendar=ChinaAStockCalendar()
+    )
     symbols = sorted({str(code).strip().upper() for code in args.symbols if str(code).strip()})
 
     matching = [
