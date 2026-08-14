@@ -3676,6 +3676,7 @@ async function fetchLiveQuote(sym, {forceRefresh = false} = {}) {
  */
 async function pushTick({ manual = true } = {}) {
   if (brokerOperationBusy) return false;
+  const startedAt = performance.now();
   stopBrokerAutoRefresh(manual ? '手动刷新中' : '自动刷新中');
   brokerOperationBusy = true;
   const sym = (document.getElementById('st-symbol')?.value.trim() || '600519').toUpperCase();

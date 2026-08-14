@@ -40,3 +40,12 @@ def test_concurrent_api_errors_are_scoped_by_request_path() -> None:
     assert "getApiFailure('/chat'" in html
     assert "getApiFailure('/comparison'" in html
     assert "getApiFailure('/backtest'" in html
+
+
+def test_paper_quote_refresh_tracks_its_own_elapsed_time() -> None:
+    html = _frontend()
+    start = html.index("async function pushTick")
+    end = html.index("function renderTickerPanel", start)
+    function_body = html[start:end]
+    assert "const startedAt = performance.now()" in function_body
+    assert "performance.now() - startedAt" in function_body
