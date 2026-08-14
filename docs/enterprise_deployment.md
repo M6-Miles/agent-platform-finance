@@ -1,5 +1,7 @@
 # 企业部署与运维基线
 
+小范围单机演示的可执行部署包位于 `deploy/`，完整操作步骤见 `deploy/README.md`。Ubuntu 22.04 默认 Python 3.10，因此部署包使用官方 Python 3.11 Docker 镜像，避免修改服务器系统 Python。
+
 ## 强制配置
 
 生产环境必须配置：
