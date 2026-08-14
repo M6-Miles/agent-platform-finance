@@ -1,5 +1,9 @@
 # 密钥文件（绝对不能提交到 Git）
 .env
+.env.*
+!.env.example
+!deploy/env.production.example
+.streamlit/secrets.toml
 
 # 数据库
 *.sqlite3
@@ -26,6 +30,8 @@ build/
 # 测试
 .pytest_cache/
 .pytest_artifacts/
+.coverage
+htmlcov/
 
 # IDE
 .vscode/
@@ -40,6 +46,10 @@ venv/
 # 操作系统
 .DS_Store
 Thumbs.db
+~$*.docx
+
+# 本地交付压缩包
+*.zip
 
 # Claude
 .claude/

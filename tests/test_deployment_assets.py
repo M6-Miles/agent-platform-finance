@@ -25,6 +25,8 @@ def test_demo_container_is_single_worker_and_loopback_only():
     assert '"127.0.0.1:8003:8003"' in compose
     assert "no-new-privileges:true" in compose
     assert "cap_drop:" in compose and "- ALL" in compose
+    assert "PYTHON_BASE_IMAGE" in dockerfile
+    assert "PYTHON_BASE_IMAGE" in compose
 
 
 def test_production_template_enforces_auth_and_mock_broker_boundary():
@@ -34,8 +36,13 @@ def test_production_template_enforces_auth_and_mock_broker_boundary():
     assert "AUTH_ENABLED=true" in env
     assert "LANGGRAPH_USE_MEMORY_SAVER=false" in env
     assert "LLM_PROVIDER=mock" in env
-    assert "docker compose up -d --build" in install
+    assert "docker compose --env-file .env.production up -d --build" in install
     assert "broker" not in install.lower()
+
+
+def test_linux_deployment_scripts_are_forced_to_lf():
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    assert "*.sh text eol=lf" in attributes
 
 
 def test_nginx_does_not_expose_upstream_directly():

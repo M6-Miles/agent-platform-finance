@@ -70,6 +70,7 @@ if [[ ! -f .env.production ]]; then
     AUTH_SECRET="$(openssl rand -hex 32)"
     cat > .env.production <<EOF
 APP_ENV=production
+PYTHON_BASE_IMAGE=docker.m.daocloud.io/library/python:3.11.9-slim-bookworm
 AUTH_ENABLED=true
 AUTH_SECRET=$AUTH_SECRET
 AUTH_TOKEN_TTL_S=28800
@@ -95,7 +96,7 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl enable --now nginx docker
 
-docker compose up -d --build
+docker compose --env-file .env.production up -d --build
 
 for _ in $(seq 1 30); do
     if curl -fsS http://127.0.0.1:8003/ready >/dev/null; then

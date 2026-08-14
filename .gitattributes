@@ -1,0 +1,18 @@
+* text=auto
+
+# Linux runtime and deployment files must never be checked out as CRLF.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Native Windows scripts keep CRLF.
+*.ps1 text eol=crlf
+
+# Binary deliverables.
+*.docx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.zip binary

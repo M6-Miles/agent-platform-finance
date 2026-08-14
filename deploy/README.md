@@ -2,6 +2,8 @@
 
 该方案面向单台 Ubuntu 22.04/24.04 服务器和少量用户：Nginx 对外提供访问，FastAPI 在 Docker 中以 Python 3.11、单 worker 运行，SQLite 保存在宿主机 `data/`，模拟交易只使用 MockBroker。
 
+安装脚本默认通过 DaoCloud 镜像代理下载 Python 基础镜像，以适配中国大陆云服务器。其他地区可在 `.env.production` 中把 `PYTHON_BASE_IMAGE` 改回 `python:3.11.9-slim-bookworm`。
+
 ## 1. 阿里云安全组
 
 只添加以下入方向规则：
