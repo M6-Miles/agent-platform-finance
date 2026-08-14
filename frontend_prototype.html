@@ -4561,6 +4561,12 @@ const WEATHER_REGIONS = {
   '浙江省': { '杭州市': ['西湖区', '上城区', '拱墅区', '滨江区'], '宁波市': ['海曙区', '鄞州区', '江北区'] },
   '四川省': { '成都市': ['锦江区', '青羊区', '武侯区', '高新区'] },
   '重庆市': { '重庆市': ['渝中区', '江北区', '南岸区', '沙坪坝区'] },
+  '新疆维吾尔自治区': {
+    '乌鲁木齐市': ['天山区', '沙依巴克区', '新市区', '水磨沟区'],
+    '克拉玛依市': ['克拉玛依区', '独山子区'],
+    '吐鲁番市': ['高昌区'],
+    '哈密市': ['伊州区'],
+  },
 };
 
 function initializeWeatherRegions() {
@@ -4750,7 +4756,8 @@ function renderLiveWeather(forecast) {
   container.classList.remove('hidden');
   const weatherState = providerStateLabel(forecast.data_status || 'real_time');
   const weatherCache = forecast.cache_time ? `｜缓存时间：${forecast.cache_time}` : '';
-  document.getElementById('weather-live-observed').textContent = `状态：${weatherState}｜观测时间：${forecast.observed_at || '—'}${weatherCache}`;
+  const weatherModel = forecast.forecast_model ? `｜模型：${forecast.forecast_model}` : '';
+  document.getElementById('weather-live-observed').textContent = `状态：${weatherState}｜观测时间：${forecast.observed_at || '—'}${weatherModel}${weatherCache}`;
   const locationNote = document.getElementById('weather-location-note');
   const hasLocationNote = Boolean(
     forecast.location_note && forecast.location_note !== '已按请求地点解析'
@@ -4774,6 +4781,7 @@ function renderLiveWeather(forecast) {
     return `<div class="border border-slate-200 rounded p-2 text-center min-w-0">
       <p class="text-xs text-slate-500">${escapeHtml(day.date)}</p>
       <p class="text-xs font-medium text-slate-700 my-1">${escapeHtml(day.condition)}</p>
+      <p class="text-[11px] text-slate-400 truncate" title="${escapeHtml(day.model_source || '')}">${escapeHtml(day.model_source || '')}</p>
       <p class="text-xs"><span class="text-red-600">${Number(day.temp_max_c).toFixed(1)}°</span> / <span class="text-blue-600">${Number(day.temp_min_c).toFixed(1)}°</span></p>
       <p class="text-xs text-slate-400 mt-1">降水 ${escapeHtml(rain)}</p>
     </div>`;

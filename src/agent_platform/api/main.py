@@ -422,6 +422,7 @@ def analyze_weather(request: WeatherAnalysisRequest) -> WeatherAnalysisResponse:
             "cache_hit": forecast.cache_hit,
             "cache_time": forecast.cache_time,
             "fallback_reason": forecast.fallback_reason,
+            "forecast_model": forecast.forecast_model,
         }
     else:
         request = request.model_copy(update={"source": authoritative_source})

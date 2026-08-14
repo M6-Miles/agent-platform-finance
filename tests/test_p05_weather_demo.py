@@ -206,6 +206,46 @@ class TestWeatherAgent:
 
 
 class TestOpenMeteoLocationResolution:
+    def test_province_only_requires_a_specific_city(self):
+        provider = OpenMeteoWeatherProvider()
+
+        try:
+            provider._resolve_location("新疆")
+        except Exception as exc:
+            assert "请选择或输入具体城市" in str(exc)
+        else:
+            raise AssertionError("省级区域不应被解析为单一天气坐标")
+
+    def test_multimodel_daily_prefers_cma_and_falls_back_to_best_match(self):
+        forecast = OpenMeteoWeatherProvider._parse(
+            "重庆",
+            {"name": "重庆", "country": "中国"},
+            {
+                "timezone": "Asia/Shanghai",
+                "current": {
+                    "temperature_2m_best_match": 28.0,
+                    "weather_code_best_match": 0,
+                },
+                "daily": {
+                    "time": ["2026-08-16", "2026-08-17"],
+                    "weather_code_cma_grapes_global": [3, None],
+                    "temperature_2m_max_cma_grapes_global": [36.0, None],
+                    "temperature_2m_min_cma_grapes_global": [26.0, None],
+                    "weather_code_best_match": [51, 96],
+                    "temperature_2m_max_best_match": [36.5, 31.0],
+                    "temperature_2m_min_best_match": [26.5, 25.0],
+                    "precipitation_probability_max_best_match": [27, 74],
+                },
+            },
+            29.56,
+            106.56,
+        )
+
+        assert forecast.daily[0].condition == "阴天"
+        assert forecast.daily[0].model_source == "中国气象局 CMA-GRAPES"
+        assert forecast.daily[1].condition == "局地雷暴（小冰雹风险）"
+        assert forecast.daily[1].model_source == "Open-Meteo Best Match"
+
     def test_district_display_keeps_city_as_municipality(self):
         city, district = _display_location_names(
             "重庆市江北区",
@@ -499,3 +539,9 @@ class TestFrontendIntegration:
         assert "const hasLocationNote = Boolean(" in html
         assert "forecast.location_note !== '已按请求地点解析'" in html
         assert "classList.toggle('hidden', !hasLocationNote)" in html
+
+    def test_frontend_includes_xinjiang_city_selection(self):
+        with open("frontend_prototype.html", encoding="utf-8") as f:
+            html = f.read()
+        assert "新疆维吾尔自治区" in html
+        assert "乌鲁木齐市" in html

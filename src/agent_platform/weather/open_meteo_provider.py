@@ -17,11 +17,17 @@ class WeatherDataUnavailableError(RuntimeError):
 
 WEATHER_CODE_LABELS = {
     0: "晴朗", 1: "大部晴朗", 2: "局部多云", 3: "阴天",
-    45: "雾", 48: "雾凇", 51: "小毛毛雨", 53: "毛毛雨", 55: "强毛毛雨",
+    45: "雾", 48: "雾凇", 51: "零星毛毛雨", 53: "间歇性毛毛雨", 55: "较强毛毛雨",
     56: "冻毛毛雨", 57: "强冻毛毛雨", 61: "小雨", 63: "中雨", 65: "大雨",
     66: "冻雨", 67: "强冻雨", 71: "小雪", 73: "中雪", 75: "大雪",
     77: "米雪", 80: "小阵雨", 81: "阵雨", 82: "强阵雨", 85: "小阵雪",
-    86: "强阵雪", 95: "雷暴", 96: "雷暴伴小冰雹", 99: "雷暴伴强冰雹",
+    86: "强阵雪", 95: "局地雷暴", 96: "局地雷暴（小冰雹风险）", 99: "局地雷暴（强冰雹风险）",
+}
+
+_PROVINCE_ALIASES = {
+    "新疆": "新疆维吾尔自治区", "广西": "广西壮族自治区",
+    "宁夏": "宁夏回族自治区", "西藏": "西藏自治区",
+    "内蒙古": "内蒙古自治区",
 }
 
 # Open-Meteo's geocoder does not consistently index Chinese urban districts.
@@ -62,6 +68,10 @@ _DISTRICT_CENTER_COORDINATES: dict[str, tuple[float, float]] = {
     "重庆市|重庆市|江北区": (29.6066, 106.5743),
     "重庆市|重庆市|南岸区": (29.5217, 106.5625),
     "重庆市|重庆市|沙坪坝区": (29.5412, 106.4574),
+    "新疆维吾尔自治区|乌鲁木齐市|天山区": (43.7940, 87.6329),
+    "新疆维吾尔自治区|乌鲁木齐市|沙依巴克区": (43.8009, 87.5982),
+    "新疆维吾尔自治区|乌鲁木齐市|新市区": (43.8554, 87.5740),
+    "新疆维吾尔自治区|乌鲁木齐市|水磨沟区": (43.8324, 87.6425),
 }
 
 
@@ -73,6 +83,7 @@ class DailyForecast:
     temp_max_c: float
     temp_min_c: float
     precipitation_probability_pct: int | None
+    model_source: str = "Open-Meteo Best Match"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +93,7 @@ class DailyForecast:
             "temp_max_c": self.temp_max_c,
             "temp_min_c": self.temp_min_c,
             "precipitation_probability_pct": self.precipitation_probability_pct,
+            "model_source": self.model_source,
         }
 
 
@@ -111,6 +123,7 @@ class WeatherForecast:
     cache_hit: bool = False
     cache_time: str | None = None
     fallback_reason: str | None = None
+    forecast_model: str = "CMA-GRAPES 优先，Open-Meteo Best Match 补全"
 
 
 class OpenMeteoWeatherProvider:
@@ -189,6 +202,7 @@ class OpenMeteoWeatherProvider:
                 ),
                 "timezone": "auto",
                 "forecast_days": 7,
+                "models": "cma_grapes_global,best_match",
             },
         )
         result = self._parse(requested, location, forecast, latitude, longitude)
@@ -213,6 +227,12 @@ class OpenMeteoWeatherProvider:
 
     def _resolve_location(self, requested: str) -> tuple[dict[str, Any], str, bool]:
         province, city, district = _parse_location_parts(requested)
+
+        if province and not city and not district:
+            raise WeatherDataUnavailableError(
+                f"{province}范围较大，无法用一个坐标代表全区天气；"
+                "请选择或输入具体城市，例如“新疆维吾尔自治区乌鲁木齐市”。"
+            )
 
         # District names are queried independently because Open-Meteo rarely
         # recognizes concatenated Chinese administrative addresses. Multiple
@@ -284,24 +304,33 @@ class OpenMeteoWeatherProvider:
         current = forecast.get("current") or {}
         daily = forecast.get("daily") or {}
         dates = daily.get("time") or []
-        highs = daily.get("temperature_2m_max") or []
-        lows = daily.get("temperature_2m_min") or []
-        codes = daily.get("weather_code") or []
-        rain = daily.get("precipitation_probability_max") or [None] * len(dates)
+        highs = _model_series(daily, "temperature_2m_max", "best_match")
+        lows = _model_series(daily, "temperature_2m_min", "best_match")
+        codes = _model_series(daily, "weather_code", "best_match")
+        rain = _model_series(daily, "precipitation_probability_max", "best_match")
+        cma_highs = _model_series(daily, "temperature_2m_max", "cma_grapes_global", fallback=False)
+        cma_lows = _model_series(daily, "temperature_2m_min", "cma_grapes_global", fallback=False)
+        cma_codes = _model_series(daily, "weather_code", "cma_grapes_global", fallback=False)
         if not dates or not (len(dates) == len(highs) == len(lows) == len(codes)):
             raise WeatherDataUnavailableError("未来 7 天天气预报字段不完整")
         try:
-            current_temp = float(current["temperature_2m"])
-            current_code = int(current["weather_code"])
+            current_temp = float(_model_scalar(current, "temperature_2m", "best_match"))
+            current_code = int(_model_scalar(current, "weather_code", "best_match"))
             days = tuple(
                 DailyForecast(
                     date=str(dates[index]),
-                    weather_code=int(codes[index]),
-                    condition=WEATHER_CODE_LABELS.get(int(codes[index]), "未知天气"),
-                    temp_max_c=round(float(highs[index]), 1),
-                    temp_min_c=round(float(lows[index]), 1),
+                    weather_code=int(_prefer_cma(cma_codes, codes, index)),
+                    condition=WEATHER_CODE_LABELS.get(
+                        int(_prefer_cma(cma_codes, codes, index)), "未知天气"
+                    ),
+                    temp_max_c=round(float(_prefer_cma(cma_highs, highs, index)), 1),
+                    temp_min_c=round(float(_prefer_cma(cma_lows, lows, index)), 1),
                     precipitation_probability_pct=(
                         None if index >= len(rain) or rain[index] is None else int(rain[index])
+                    ),
+                    model_source=(
+                        "中国气象局 CMA-GRAPES"
+                        if _has_value(cma_codes, index) else "Open-Meteo Best Match"
                     ),
                 )
                 for index in range(len(dates))
@@ -319,10 +348,10 @@ class OpenMeteoWeatherProvider:
             longitude=longitude,
             timezone=str(forecast.get("timezone") or location.get("timezone") or "auto"),
             current_temperature_c=round(current_temp, 1),
-            apparent_temperature_c=_optional_float(current.get("apparent_temperature")),
-            relative_humidity_pct=_optional_int(current.get("relative_humidity_2m")),
-            precipitation_mm=_optional_float(current.get("precipitation")),
-            wind_speed_kmh=_optional_float(current.get("wind_speed_10m")),
+            apparent_temperature_c=_optional_float(_model_scalar(current, "apparent_temperature", "best_match")),
+            relative_humidity_pct=_optional_int(_model_scalar(current, "relative_humidity_2m", "best_match")),
+            precipitation_mm=_optional_float(_model_scalar(current, "precipitation", "best_match")),
+            wind_speed_kmh=_optional_float(_model_scalar(current, "wind_speed_10m", "best_match")),
             weather_code=current_code,
             condition=WEATHER_CODE_LABELS.get(current_code, "未知天气"),
             observed_at=str(current.get("time") or fetched_at),
@@ -339,21 +368,55 @@ def _optional_int(value: Any) -> int | None:
     return None if value is None else int(value)
 
 
+def _model_series(
+    payload: dict[str, Any], field: str, model: str, *, fallback: bool = True
+) -> list[Any]:
+    values = payload.get(f"{field}_{model}")
+    if values is None and fallback:
+        values = payload.get(field)
+    return list(values or [])
+
+
+def _model_scalar(payload: dict[str, Any], field: str, model: str) -> Any:
+    value = payload.get(f"{field}_{model}")
+    return payload.get(field) if value is None else value
+
+
+def _has_value(values: list[Any], index: int) -> bool:
+    return index < len(values) and values[index] is not None
+
+
+def _prefer_cma(cma_values: list[Any], fallback_values: list[Any], index: int) -> Any:
+    if _has_value(cma_values, index):
+        return cma_values[index]
+    if not _has_value(fallback_values, index):
+        raise WeatherDataUnavailableError(f"天气预报第 {index + 1} 天缺少有效模型数据")
+    return fallback_values[index]
+
+
 def _parse_location_parts(requested: str) -> tuple[str, str, str]:
     compact = re.sub(r"\s+", "", requested)
+    for short_name, full_name in _PROVINCE_ALIASES.items():
+        if compact.startswith(short_name) and not compact.startswith(full_name):
+            compact = full_name + compact[len(short_name):]
+            break
     municipality = next(
         (name for name in ("北京", "上海", "天津", "重庆") if compact.startswith(name)),
         "",
     )
-    district_match = re.search(r"([^省市]+?(?:新区|区|县|旗))$", compact)
-    district = district_match.group(1) if district_match else ""
     if municipality:
+        remainder = compact[len(municipality):].removeprefix("市")
+        district_match = re.search(r"(.+?(?:新区|区|县|旗))$", remainder)
+        district = district_match.group(1) if district_match else ""
         return f"{municipality}市", f"{municipality}市", district
     province_match = re.match(r"(.+?(?:省|自治区|特别行政区))", compact)
     province = province_match.group(1) if province_match else ""
     remainder = compact[len(province):]
     city_match = re.match(r"(.+?市)", remainder)
     city = city_match.group(1) if city_match else ""
+    district_remainder = remainder[len(city):]
+    district_match = re.search(r"(.+?(?:新区|区|县|旗))$", district_remainder)
+    district = district_match.group(1) if district_match else ""
     return province, city, district
 
 

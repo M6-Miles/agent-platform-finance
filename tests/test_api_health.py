@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi.testclient import TestClient
 
 from agent_platform.api import main
@@ -117,6 +119,10 @@ def test_observability_api_is_persistent_and_resettable(tmp_path, monkeypatch) -
 
 
 def test_paper_monitor_api_daily_record_is_idempotent(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "agent_platform.finance.paper_trading_monitor._local_now",
+        lambda: datetime.fromisoformat("2026-08-14T10:00:00+08:00"),
+    )
     client = build_client(tmp_path, monkeypatch)
     created = client.post(
         "/paper-trading/monitor/jobs",
