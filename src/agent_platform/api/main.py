@@ -1379,9 +1379,16 @@ def start_research(
     data_mode : str
         数据模式，"auto"（默认，自动选择）或 "offline"（离线样本数据）
     """
+    from agent_platform.finance.data_status import validate_research_symbol
+
+    try:
+        normalized_symbol = validate_research_symbol(symbol)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     svc = get_application_service()
     try:
-        result = svc.deep_research(symbol, data_mode=data_mode)
+        result = svc.deep_research(normalized_symbol, data_mode=data_mode)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

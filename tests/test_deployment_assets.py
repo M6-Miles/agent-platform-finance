@@ -28,6 +28,13 @@ def test_demo_container_is_single_worker_and_loopback_only():
     assert "PYTHON_BASE_IMAGE" in compose
 
 
+def test_frontend_uses_same_origin_api_when_deployed():
+    html = (ROOT / "frontend_prototype.html").read_text(encoding="utf-8")
+    assert "window.location.origin" in html
+    assert "remotePageWithLoopbackApi" in html
+    assert "let API_BASE = apiFromUrl" in html
+
+
 def test_production_template_enforces_auth_and_mock_broker_boundary():
     env = (ROOT / "deploy/env.production.example").read_text(encoding="utf-8")
     install = (ROOT / "deploy/install_demo.sh").read_text(encoding="utf-8")

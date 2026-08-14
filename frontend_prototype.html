@@ -504,6 +504,7 @@
             <label class="block text-xs font-medium text-slate-600 mb-1.5">股票代码</label>
             <input id="deep-symbol" type="text" value="DEMO001" placeholder="例如: 600519, DEMO001"
               class="input-field w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+            <p class="mt-1 text-xs text-slate-500">真实股票请输入正确的 6 位 A 股代码，例如西藏珠峰为 600338。</p>
           </div>
           <div class="flex-1 min-w-[150px] max-w-[200px]">
             <label class="block text-xs font-medium text-slate-600 mb-1.5">数据模式</label>
@@ -1092,8 +1093,18 @@ let obsState = { calls: [], callSeq: 1, harnessResults: [] };
 const urlParams = new URLSearchParams(window.location.search);
 const apiFromUrl = urlParams.get('api');
 
-// 2. localStorage 持久化
-let API_BASE = apiFromUrl || localStorage.getItem('api_base') || 'http://127.0.0.1:8003';
+// 2. 部署时默认使用当前网页同源 API；直接打开本地文件时使用开发地址。
+const localApiBase = 'http://127.0.0.1:8003';
+const sameOriginApiBase = /^https?:$/.test(window.location.protocol)
+  ? window.location.origin
+  : localApiBase;
+const storedApiBase = localStorage.getItem('api_base');
+const remotePageWithLoopbackApi = !['127.0.0.1', 'localhost'].includes(window.location.hostname)
+  && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(storedApiBase || '');
+let API_BASE = apiFromUrl || (remotePageWithLoopbackApi ? sameOriginApiBase : storedApiBase) || sameOriginApiBase;
+if (remotePageWithLoopbackApi) {
+  localStorage.setItem('api_base', API_BASE);
+}
 if (apiFromUrl) {
   localStorage.setItem('api_base', apiFromUrl);
 }
@@ -2583,13 +2594,21 @@ async function testApiConnection() {
 
 // 启动深度投研（调用真实后端 LangGraph API）
 async function startDeepResearch() {
-  const symbol = document.getElementById('deep-symbol').value.trim();
+  const symbol = document.getElementById('deep-symbol').value.trim().toUpperCase();
   const dataMode = document.getElementById('deep-data-mode').value || 'offline';
   const btn = document.getElementById('deep-start-btn');
 
   // 1. 校验输入
   if (!symbol) {
     showError('请输入股票代码');
+    return;
+  }
+  const sampleSymbol = /^(DEMO|TEST)\d{3}$/.test(symbol);
+  const listedAShare = /^(000|001|002|003|300|301|600|601|603|605|688|689)\d{3}$/.test(symbol)
+    || /^(4|8)\d{5}$/.test(symbol) || /^92\d{4}$/.test(symbol);
+  if (!sampleSymbol && !listedAShare) {
+    hideAllDeepSections();
+    showError(`证券代码 ${symbol} 不属于支持的 A 股代码段。若要分析西藏珠峰，请输入 600338。`);
     return;
   }
 

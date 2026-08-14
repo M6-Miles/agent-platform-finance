@@ -34,6 +34,11 @@ STATUS_UNAVAILABLE = "unavailable"
 
 VALID_DATA_MODES = ("offline", "auto")
 
+_MAINLAND_A_SHARE_PREFIXES = (
+    "000", "001", "002", "003", "300", "301",
+    "600", "601", "603", "605", "688", "689",
+)
+
 SOURCE_LABELS = {
     STATUS_LIVE: "AkShare 公开数据",
     STATUS_OFFLINE_SAMPLE: "内置样例数据（离线）",
@@ -91,6 +96,29 @@ def is_sample_symbol(symbol: str) -> bool:
     """判断是否为样例代码（DEMO*/TEST*），供外部公开调用。"""
     value = symbol.strip().upper()
     return value.startswith("DEMO") or value.startswith("TEST")
+
+
+def validate_research_symbol(symbol: str) -> str:
+    """校验深度投研支持的样例代码或中国内地 A 股代码。"""
+    value = (symbol or "").strip().upper()
+    if (
+        len(value) == 7
+        and value[:4] in ("DEMO", "TEST")
+        and value[4:].isdigit()
+    ):
+        return value
+    if len(value) != 6 or not value.isdigit():
+        raise ValueError("证券代码应为 6 位 A 股代码，例如 600519；样例代码可用 DEMO001。")
+    supported = value.startswith(_MAINLAND_A_SHARE_PREFIXES) or value.startswith(
+        ("4", "8", "92")
+    )
+    if not supported:
+        raise ValueError(
+            f"证券代码 {value} 不属于当前支持的 A 股代码段。"
+            "上交所常见代码以 600/601/603/605/688 开头；"
+            "若要分析西藏珠峰，请输入 600338，而不是 660338。"
+        )
+    return value
 
 
 def _is_offline_sample_symbol(symbol: str) -> bool:

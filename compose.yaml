@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile
       args:
         PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.11.9-slim-bookworm}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        APT_MIRROR_HOST: ${APT_MIRROR_HOST:-mirrors.aliyun.com}
     container_name: agent-platform-demo
     restart: unless-stopped
     env_file:

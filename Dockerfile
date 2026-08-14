@@ -1,12 +1,16 @@
 ARG PYTHON_BASE_IMAGE=python:3.11.9-slim-bookworm
 FROM ${PYTHON_BASE_IMAGE}
 
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG APT_MIRROR_HOST=mirrors.aliyun.com
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app/src
 
-RUN apt-get update \
+RUN sed -i "s|deb.debian.org|${APT_MIRROR_HOST}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -24,8 +28,8 @@ COPY MCP ./MCP
 COPY data/sample ./data/sample
 COPY data/reference ./data/reference
 
-RUN python -m pip install --upgrade pip \
-    && python -m pip install ".[akshare,llm]"
+RUN python -m pip install --index-url "${PIP_INDEX_URL}" --upgrade pip \
+    && python -m pip install --index-url "${PIP_INDEX_URL}" ".[akshare,llm]"
 
 RUN groupadd --gid 10001 agentapp \
     && useradd --uid 10001 --gid agentapp --no-create-home --shell /usr/sbin/nologin agentapp \

@@ -71,6 +71,8 @@ if [[ ! -f .env.production ]]; then
     cat > .env.production <<EOF
 APP_ENV=production
 PYTHON_BASE_IMAGE=docker.m.daocloud.io/library/python:3.11.9-slim-bookworm
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+APT_MIRROR_HOST=mirrors.aliyun.com
 AUTH_ENABLED=true
 AUTH_SECRET=$AUTH_SECRET
 AUTH_TOKEN_TTL_S=28800

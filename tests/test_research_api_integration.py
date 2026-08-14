@@ -16,6 +16,13 @@ def client():
     return TestClient(app)
 
 
+def test_research_rejects_unsupported_exchange_code(client):
+    response = client.post("/research/660338?data_mode=auto")
+
+    assert response.status_code == 422
+    assert "600338" in response.json()["detail"]
+
+
 def test_research_workflow_offline_completed(client):
     """测试离线模式完整工作流：POST /research → GET /state → 验证 completed 状态"""
     # 1. 启动深度投研 - 显式指定 offline 模式
