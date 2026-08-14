@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-platform-finance-demo"
 version = "0.1.0"
-description = "本地演示版通用 Agent 平台及证券金融分析应用"
+description = "可部署演示版通用 Agent 平台及证券金融分析应用"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
