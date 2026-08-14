@@ -186,6 +186,36 @@ def test_daily_summary_counts_distinct_dates_only(tmp_path):
     summary = aggregate_daily_reports(paths)
     assert summary["distinct_run_days"] == 2
     assert summary["status"] == "collecting"
+    assert len(summary["runs"]) == 2
+
+
+def test_daily_summary_selects_latest_completed_authoritative_run(tmp_path):
+    base = {
+        "provider_kind": "real",
+        "sample_count": 100,
+        "run_date": "2026-08-14",
+        "evaluation": {"label_match_rate": 0.8},
+    }
+    reports = []
+    for name, status, score in (
+        ("run_090000.json", "completed", 0.80),
+        ("run_100000.json", "partial_failure", 0.99),
+        ("run_120000.json", "completed", 0.91),
+    ):
+        path = tmp_path / name
+        path.write_text(json.dumps({
+            **base,
+            "status": status,
+            "evaluation": {"label_match_rate": score},
+        }), encoding="utf-8")
+        reports.append(path)
+
+    summary = aggregate_daily_reports(reports)
+
+    assert summary["distinct_run_days"] == 1
+    assert len(summary["runs"]) == 1
+    assert summary["runs"][0]["report"].endswith("run_120000.json")
+    assert summary["runs"][0]["label_match_rate"] == 0.91
 
 
 def test_seven_distinct_dates_reaches_time_evidence(tmp_path):

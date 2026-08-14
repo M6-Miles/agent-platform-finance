@@ -10,6 +10,7 @@ from typing import Any
 from agent_platform.core.real_llm_replay import ReplayExperimentResult
 
 EXPECTED_OUTCOMES = {"pass", "block", "manual_review", "schema_error"}
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _schema_instruction() -> str:
@@ -382,17 +383,38 @@ def evaluate_labeled_replay(
 
 
 def aggregate_daily_reports(report_paths: list[Path]) -> dict[str, Any]:
-    """Aggregate dated report snapshots and expose evidence maturity/drift."""
-    runs = []
+    """Aggregate one authoritative real-LLM report per natural day."""
+    candidates: dict[str, list[tuple[Path, dict[str, Any]]]] = {}
     for path in sorted(report_paths):
         data = json.loads(path.read_text(encoding="utf-8"))
         evaluation = data.get("evaluation")
-        if not evaluation:
+        if not evaluation or data.get("provider_kind") not in (None, "real"):
             continue
         run_date = data.get("run_date") or path.parent.name
+        candidates.setdefault(run_date, []).append((path, data))
+
+    selected: list[tuple[str, Path, dict[str, Any]]] = []
+    for run_date, daily_candidates in candidates.items():
+        path, data = max(
+            daily_candidates,
+            key=lambda item: (
+                item[1].get("status") == "completed",
+                int(item[1].get("sample_count", 0)),
+                item[0].name,
+            ),
+        )
+        selected.append((run_date, path, data))
+
+    runs = []
+    for run_date, path, data in sorted(selected):
+        evaluation = data["evaluation"]
+        try:
+            report_path = path.resolve().relative_to(PROJECT_ROOT).as_posix()
+        except ValueError:
+            report_path = path.as_posix()
         runs.append({
             "run_date": run_date,
-            "report": str(path),
+            "report": report_path,
             "sample_count": data.get("sample_count", 0),
             "label_match_rate": evaluation.get("label_match_rate"),
             "schema_compliance_rate": evaluation.get("schema_compliance_rate"),
@@ -401,7 +423,7 @@ def aggregate_daily_reports(report_paths: list[Path]) -> dict[str, Any]:
             "latency_p95_s": evaluation.get("latency_p95_s"),
             "provider_error_rate": data.get("provider_error_rate"),
         })
-    dates = sorted({run["run_date"] for run in runs})
+    dates = [run["run_date"] for run in runs]
     drift = {}
     if len(runs) >= 2:
         first, last = runs[0], runs[-1]

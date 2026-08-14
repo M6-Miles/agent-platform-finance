@@ -38,7 +38,7 @@
 - 连续对话上下文（Agent 加载历史消息）
 
 ### 测试覆盖
-- **1621 项测试收集，1620 项通过、1 项跳过、0 失败**（2026-08-14 实测）。准确数量仍以 `python -m pytest --collect-only` 的当前输出为准。测试覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、真实 LLM 回放框架与天气 Demo。
+- **1622 项测试收集，1621 项通过、1 项跳过、0 失败**（2026-08-14 实测）。准确数量仍以 `python -m pytest --collect-only` 的当前输出为准。测试覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、真实 LLM 回放框架与天气 Demo。
 
 ## 2. 项目不会做什么
 

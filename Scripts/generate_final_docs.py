@@ -197,7 +197,7 @@ def summary_doc():
     p(d, "回测保留原 Sharpe 公式、年化方式、无风险利率、0.5 阈值和 MA baseline。当前已完成成本、滑点、印花税、连续仓位、Walk-forward、样本外对比和基准收益记录，但策略研究结果仍未稳定达到 Sharpe 0.5。正式基线多因子样本外均值约为 -0.337；本轮预先定义的稳健选参挑战方案实测为 -0.499，未带来改善，因此没有替换正式基线。")
     d.add_heading("九、质量验证", 1)
     table(d, ["门禁", "结果/状态", "证据"], [
-        ("单元与集成测试", "1621 项收集；1620 passed，1 skipped，0 failed", "2026-08-14 pytest"),
+        ("单元与集成测试", "1622 项收集；1621 passed，1 skipped，0 failed", "2026-08-14 pytest"),
         ("静态检查", "pyflakes、compileall 已通过", "命令输出"),
         ("前端语法", "已通过", "Scripts/check_frontend_syntax.js"),
         ("敏感信息", "API Key 不写入代码、文档、日志或 Git", ".env 与报告审计"),
@@ -227,7 +227,7 @@ def summary_doc():
 
 def beginner_doc():
     d = Document(); setup(d, "项目小白说明文档")
-    callout(d, "当前事实", "截至 2026-08-14：1621 项测试收集，1620 passed、1 skipped、0 failed；正式样本外 Sharpe 约 -0.337，未达到 0.5；真实行情模拟盘证据为 1/7 天。", AMBER)
+    callout(d, "当前事实", "截至 2026-08-14：1622 项测试收集，1621 passed、1 skipped、0 failed；正式样本外 Sharpe 约 -0.337，未达到 0.5；真实行情模拟盘证据为 1/7 天。", AMBER)
     callout(d, "先看结论", "你可以把这个项目理解成“一个会调用数据、多个专业分析员协作、还会自我检查并等待人批准的研究系统”。它能做研究演示和模拟交易，但不会自动拿你的钱去真实买股票。", GREEN)
     d.add_heading("第一部分：先建立整体画面", 1)
     d.add_heading("1. 这个项目到底做什么？", 2)

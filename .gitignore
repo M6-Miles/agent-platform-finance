@@ -25,6 +25,7 @@ build/
 
 # 测试
 .pytest_cache/
+.pytest_artifacts/
 
 # IDE
 .vscode/
@@ -42,17 +43,6 @@ Thumbs.db
 
 # Claude
 .claude/
-
-# ── SQLite 附属文件 ────────────────────────────────────────────
-# `*.db` 匹配不到 WAL 模式产生的这两个附属文件。实测
-# data/app_lg_checkpoints.db-wal 有 2.1MB，属运行期产物，不入库。
-*.db-shm
-*.db-wal
-*.sqlite3-shm
-*.sqlite3-wal
-
-# ── 运行期日志 ────────────────────────────────────────────────
-*.log
 
 # ── 运行期数据与网络缓存 ──────────────────────────────────────
 # data/real 与 data/real_delisted 是 Scripts/fetch_real_history.py、
