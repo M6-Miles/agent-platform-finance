@@ -1,8 +1,8 @@
 {
   "version": "3.1",
   "project": "通用Agent平台及证券金融分析应用",
-  "updated_at": "2026-08-14",
-  "test_count": 1658,
+  "updated_at": "2026-08-15",
+  "test_count": 1663,
   "_status_schema": {
     "implemented": "功能代码已实现（可单独调用/测试）",
     "integrated": "已接入主应用链路（FastAPI / 浏览器前端 / ApplicationService / 完整 Pipeline）",
@@ -52,7 +52,7 @@
       "implemented": true,
       "integrated": true,
       "acceptance_met": true,
-      "notes": "正式实现位于 src/agent_platform/weather，examples/weather_analysis 保留可运行示例与兼容导出；复用 JSONSchemaValidator/KeywordBlocker/SourceAttributionFilter，已接入 POST /weather/analyze、GET /weather/samples 和浏览器天气页。"
+      "notes": "正式实现位于 src/agent_platform/weather，examples/weather_analysis 保留可运行示例与兼容导出；复用 JSONSchemaValidator/KeywordBlocker/SourceAttributionFilter，已接入 POST /weather/analyze、GET /weather/samples 和浏览器天气页。中国境内联网预报优先使用 CMA-GRAPES，超出时效后由 Open-Meteo Best Match 补全；支持新疆省市区选择、具体城市约束、区县参考坐标和逐日模型来源。"
     },
     {
       "id": "A-01",
@@ -187,7 +187,7 @@
       "implemented": true,
       "integrated": true,
       "acceptance_met": true,
-      "notes": "frontend_prototype.html 为 FastAPI 提供的 HTML 主前端，Tailwind 已编译到 assets/app.css，运行时无 CDN/外部字体依赖。包含证券分析/多股对比/Agent对话/深度投研/策略回测/模拟盘/可观测性/天气分析 8 个页面；外部行情、天气、DeepSeek 分项显示状态、缓存、退避、成功率和P95。历史回放与自然日监控术语已区分，DAG 分支与节点使用中文。业务结果来自真实 API，后端不可达时明确报错，不以演示数据冒充在线结果。"
+      "notes": "frontend_prototype.html 为 FastAPI 提供的 HTML 主前端，Tailwind 已编译到 assets/app.css，运行时无 CDN/外部字体依赖。包含证券分析/多股对比/Agent对话/深度投研/策略回测/模拟盘/可观测性/天气分析 8 个页面；外部行情、天气、DeepSeek 分项显示状态、缓存、退避、成功率和P95。历史回放与自然日监控术语已区分，DAG 分支与节点使用中文。业务结果来自真实 API，后端不可达时明确报错，不以演示数据冒充在线结果。六位 A 股代码与数据源标的一致性经过校验，无效代码明确拒绝。2026-08-15 已完成 Ubuntu + Docker + Nginx 服务器部署和页面验收。"
     }
   ]
 }
