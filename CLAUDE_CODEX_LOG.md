@@ -1584,5 +1584,15 @@ $ .venv\Scripts\python.exe Scripts\run_real_llm_replay.py --provider deepseek
 - 真实 LLM 评测集增加固定事实快照、脱敏结构化输出、逐字段事实核验，以及 Harness OFF/ON 无效下游动作资格对照。旧报告缺少事实字段，不倒推或伪造幻觉率。
 - 新增 `Scripts/run_daily_paper_monitor.py`，同日幂等采集真实行情模拟盘证据。2026-08-14 首日记录有效：000001、600519 均为腾讯证券公开行情、data_status=live、无降级，当前 1/7。
 - 全量测试：1604 collected；1603 passed，1 skipped，0 failed。compileall、pyflakes、前端 JavaScript 语法检查通过。
+
+## 2026-08-14 即时企业级优化
+
+- 删除前端写死的会话和最近分析数组，侧边栏改为读取 SQLite 对应的 `/sessions` 与 `/analysis-history` API。
+- 对话页面现在可以恢复持久化消息，并在选中会话后继续沿用同一 `session_id`。
+- 分析历史增加用户归属：普通用户只读取自己的记录，管理员可查看全部。
+- 新建会话改为无弹窗空白会话，第一条消息发送时由后端创建，避免原生 `prompt()` 在嵌入式浏览器失效。
+- 用户消息渲染统一 HTML 转义；并发 API 错误按请求路径隔离，避免不同功能相互覆盖错误提示。
+- 隔离浏览器验收：离线证券分析约 0.2 秒；分析、对比、回测、天气四接口并发墙钟约 0.49 秒；历史恢复与 XSS 检查通过。
+- 最终全量测试：1609 collected；1608 passed，1 skipped，0 failed。pyflakes、compileall、前端 JavaScript 语法检查通过。
 - 更新 README、PROJECT_STATUS.md、checklist.json、progress.txt、deliverables_report.md、项目总结文档.docx 和项目小白说明文档.docx，统一最新口径。
 - 两份 Word 文档完成结构检查；本机缺少 LibreOffice，Word PDF 导出未成功，未声称完成页面图片级视觉验收。

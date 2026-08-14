@@ -38,7 +38,7 @@
 - 连续对话上下文（Agent 加载历史消息）
 
 ### 测试覆盖
-- **1604 项测试收集，1603 项通过、1 项跳过、0 失败**（2026-08-14 实测），覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、真实 LLM 回放框架与天气 Demo。
+- **1609 项测试收集，1608 项通过、1 项跳过、0 失败**（2026-08-14 实测），覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、真实 LLM 回放框架与天气 Demo。
 
 ## 2. 项目不会做什么
 
@@ -251,7 +251,7 @@ python -m pytest -q -m "not slow"
 正常情况下应看到全部通过：
 
 ```text
-1603 passed, 1 skipped, 0 failed（1604 collected）
+1608 passed, 1 skipped, 0 failed（1609 collected）
 ```
 
 > 该 warning 来自 `fastapi/testclient.py` 的 `StarletteDeprecationWarning`（第三方库，

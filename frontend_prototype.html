@@ -1073,8 +1073,12 @@ function getDataSource() {
  * 注意：options 必须真正传给 fetch，否则 POST 会退化成无 body 的 GET。
  */
 async function callApi(path, options = {}) {
+  let requestStatus = null;
   window._lastApiStatus = null;
   window._lastApiPath = path;
+  window._lastApiError = null;
+  window._apiFailures = window._apiFailures || new Map();
+  window._apiFailures.delete(path);
   try {
     const init = { signal: AbortSignal.timeout(60000), ...options };
     if (init.body && !init.method) init.method = 'POST';
@@ -1089,6 +1093,7 @@ async function callApi(path, options = {}) {
       } catch (_) { /* 响应体非 JSON，保留状态码 */ }
       const e = new Error(detail);
       e.status = resp.status;
+      requestStatus = resp.status;
       window._lastApiStatus = resp.status;
       throw e;
     }
@@ -1099,8 +1104,17 @@ async function callApi(path, options = {}) {
       : e.message;
     console.warn('[API]', path, message);
     window._lastApiError = message;
+    window._apiFailures.set(path, {message, status: requestStatus});
     return null;
   }
+}
+
+function getApiFailure(path, fallback) {
+  const failure = window._apiFailures?.get(path);
+  return failure || {
+    message: window._lastApiPath === path ? (window._lastApiError || fallback) : fallback,
+    status: window._lastApiPath === path ? window._lastApiStatus : null,
+  };
 }
 
 let authToken = sessionStorage.getItem('auth_token') || '';
@@ -1174,9 +1188,10 @@ async function initializeAuthentication() {
   }
 }
 
-function describeAnalysisFailure(symbol, dataMode) {
-  const detail = window._lastApiError || '后端未返回分析结果';
-  const status = window._lastApiStatus;
+function describeAnalysisFailure(symbol, dataMode, requestPath) {
+  const failure = getApiFailure(requestPath, '后端未返回分析结果');
+  const detail = failure.message;
+  const status = failure.status;
   if (status === 503) {
     return {
       title: '联网行情暂不可用',
@@ -1389,21 +1404,7 @@ function updateStatusBadge(status) {
 }
 
 
-// 会话列表 mock
-const MOCK_SESSIONS = [
-  { id:1, title:'分析 DEMO001 · 技术面', time:'10:23' },
-  { id:2, title:'多股对比 A/B/C',         time:'09:47' },
-  { id:3, title:'深度投研 科技龙头A',      time:'昨天' },
-  { id:4, title:'回测 MA策略 2025',        time:'昨天' },
-  { id:5, title:'询问MACD指标含义',        time:'周一' },
-];
-const MOCK_RECENT = [
-  { sym:'DEMO001', date:'2025-12-31', ret:+61.1 },
-  { sym:'DEMO002', date:'2025-12-31', ret:+17.7 },
-  { sym:'TEST001', date:'2025-12-31', ret:+5.7  },
-  { sym:'TEST009', date:'2025-12-31', ret:+19.9 },
-  { sym:'TEST018', date:'2025-12-30', ret:-35.6 },
-];
+let currentChatSessionId = null;
 
 /* ═══════════════════════════════════════════════════════════════
    2. 导航 & 登录
@@ -1539,52 +1540,104 @@ function toggleUserMenu() {
 /* ═══════════════════════════════════════════════════════════════
    3. 侧边栏初始化
 ═══════════════════════════════════════════════════════════════ */
-function initSidebar() {
+async function initSidebar() {
   const sl = document.getElementById('session-list');
-  sl.innerHTML = MOCK_SESSIONS.map(s => `
-    <div class="group flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-700/50 cursor-pointer"
-         onclick="loadSession(${s.id})" id="session-item-${s.id}">
-      <div class="flex-1 min-w-0">
-        <p class="text-xs text-slate-300 truncate group-hover:text-white">${s.title}</p>
-        <p class="text-xs text-slate-600">${s.time}</p>
-      </div>
-      <button class="hidden group-hover:flex items-center justify-center text-slate-500 hover:text-red-400 p-1 rounded transition-colors text-xs"
-              title="删除" onclick="deleteSession(event,${s.id})">✕</button>
-    </div>`).join('');
-  // 最近分析
   const rl = document.getElementById('recent-list');
-  rl.innerHTML = MOCK_RECENT.map(r => {
-    const c = r.ret >= 0 ? 'text-green-400' : 'text-red-400';
-    const s = r.ret >= 0 ? '+' : '';
+  sl.innerHTML = '<p class="px-2 py-2 text-xs text-slate-500">正在加载会话...</p>';
+  rl.innerHTML = '<p class="px-2 py-2 text-xs text-slate-500">正在加载分析记录...</p>';
+  const [sessions, recent] = await Promise.all([
+    callApi('/sessions?limit=20', {signal: AbortSignal.timeout(8000)}),
+    callApi('/analysis-history?limit=5', {signal: AbortSignal.timeout(8000)}),
+  ]);
+
+  if (Array.isArray(sessions)) {
+    sl.innerHTML = sessions.length ? sessions.map(s => `
+    <div class="session-row group flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-700/50 cursor-pointer"
+         data-session-id="${escapeHtml(s.id)}" id="session-item-${escapeHtml(s.id)}">
+      <div class="flex-1 min-w-0">
+        <p class="text-xs text-slate-300 truncate group-hover:text-white">${escapeHtml(s.title || '未命名会话')}</p>
+        <p class="text-xs text-slate-600">${escapeHtml(formatSidebarTime(s.updated_at || s.created_at))}</p>
+      </div>
+      <button class="session-delete hidden group-hover:flex items-center justify-center text-slate-500 hover:text-red-400 p-1 rounded transition-colors text-xs"
+              title="删除会话" aria-label="删除会话">✕</button>
+    </div>`).join('') : '<p class="px-2 py-2 text-xs text-slate-500">暂无会话</p>';
+    sl.querySelectorAll('.session-row').forEach(row => {
+      row.addEventListener('click', () => loadSession(row.dataset.sessionId));
+      row.querySelector('.session-delete')?.addEventListener('click', event => {
+        event.stopPropagation();
+        deleteSession(row.dataset.sessionId);
+      });
+    });
+  } else {
+    sl.innerHTML = `<p class="px-2 py-2 text-xs text-red-400">${escapeHtml(getApiFailure('/sessions?limit=20', '会话加载失败').message)}</p>`;
+  }
+
+  if (Array.isArray(recent)) {
+    rl.innerHTML = recent.length ? recent.map(r => {
+    const ret = Number(r.total_return_pct);
+    const c = ret >= 0 ? 'text-green-400' : 'text-red-400';
+    const sign = ret >= 0 ? '+' : '';
     return `<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-700/30 cursor-pointer"
-               onclick="quickAnalysis('${r.sym}')">
-      <span class="text-xs text-slate-400">${r.sym}</span>
-      <span class="text-xs ${c} num">${s}${r.ret.toFixed(1)}%</span>
+               onclick="quickAnalysis('${escapeHtml(r.symbol)}')">
+      <span class="text-xs text-slate-400">${escapeHtml(r.symbol)}</span>
+      <span class="text-xs ${c} num">${sign}${Number.isFinite(ret) ? ret.toFixed(1) : '—'}%</span>
     </div>`;
-  }).join('');
+    }).join('') : '<p class="px-2 py-2 text-xs text-slate-500">暂无分析记录</p>';
+  } else {
+    rl.innerHTML = `<p class="px-2 py-2 text-xs text-red-400">${escapeHtml(getApiFailure('/analysis-history?limit=5', '分析记录加载失败').message)}</p>`;
+  }
 }
+
+function formatSidebarTime(value) {
+  if (!value) return '时间未知';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', {
+    month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
+  });
+}
+
 function newSession() {
-  const title = prompt('会话名称：');
-  if (title) { MOCK_SESSIONS.unshift({ id: Date.now(), title, time:'刚刚' }); initSidebar(); }
+  currentChatSessionId = null;
+  chatHistory = [];
+  const container = document.getElementById('chat-messages');
+  container.innerHTML = '';
+  container.classList.add('hidden');
+  document.getElementById('chat-empty').classList.remove('hidden');
+  document.querySelectorAll('#session-list > div').forEach(el =>
+    el.classList.remove('bg-blue-600/20'));
+  navigate('chat');
+  document.getElementById('chat-input')?.focus();
 }
-function loadSession(id) {
-  const s = MOCK_SESSIONS.find(x => x.id === id);
-  if (!s) return;
-  // 高亮选中
+async function loadSession(id) {
+  const messages = await callApi(`/sessions/${encodeURIComponent(id)}/messages`, {
+    signal:AbortSignal.timeout(8000),
+  });
+  if (!Array.isArray(messages)) return;
+  currentChatSessionId = id;
   document.querySelectorAll('#session-list > div').forEach(el =>
     el.classList.toggle('bg-blue-600/20', el.id === 'session-item-' + id));
-  // 根据标题推断页面跳转
-  const t = s.title.toLowerCase();
-  if (t.includes('对比')) navigate('comparison');
-  else if (t.includes('深度') || t.includes('投研')) navigate('deep');
-  else if (t.includes('回测') || t.includes('策略')) navigate('backtest');
-  else if (t.includes('模拟') || t.includes('盘')) navigate('simtrade');
-  else navigate('chat');
+  navigate('chat');
+  chatHistory = messages.map(m => ({role:m.role, content:m.content}));
+  const container = document.getElementById('chat-messages');
+  container.innerHTML = '';
+  messages.forEach(m => appendMessage(m.role, m.role === 'assistant' ? mdToHtml(m.content) : m.content));
+  document.getElementById('chat-empty').classList.toggle('hidden', messages.length > 0);
+  container.classList.toggle('hidden', messages.length === 0);
 }
-function deleteSession(event, id) {
-  event.stopPropagation();
-  const idx = MOCK_SESSIONS.findIndex(x => x.id === id);
-  if (idx !== -1) { MOCK_SESSIONS.splice(idx, 1); initSidebar(); }
+async function deleteSession(id) {
+  if (!confirm('确定删除这个会话及其消息吗？')) return;
+  const result = await callApi(`/sessions/${encodeURIComponent(id)}`, {
+    method:'DELETE', signal:AbortSignal.timeout(8000),
+  });
+  if (!result) return;
+  if (currentChatSessionId === id) {
+    currentChatSessionId = null;
+    chatHistory = [];
+    document.getElementById('chat-messages').innerHTML = '';
+    document.getElementById('chat-messages').classList.add('hidden');
+    document.getElementById('chat-empty').classList.remove('hidden');
+  }
+  await initSidebar();
 }
 function quickAnalysis(sym) {
   navigate('analysis');
@@ -1847,8 +1900,9 @@ async function runAnalysisTask() {
   // ── 统一调用后端 API（auto 或 offline）────────────────────────────
   const requestStartedAt = performance.now();
   // /analysis 已返回指标序列与 OHLCV，不再重复请求 /price-history。
+  const analysisPath = `/analysis/${encodeURIComponent(symbol)}?start=${startVal}&end=${endVal}&data_mode=${dataMode}`;
   const analysis = await callApi(
-    `/analysis/${encodeURIComponent(symbol)}?start=${startVal}&end=${endVal}&data_mode=${dataMode}`,
+    analysisPath,
     { signal: AbortSignal.timeout(90000) },
   );
   const history = analysis?.series || [];
@@ -1856,7 +1910,7 @@ async function runAnalysisTask() {
   const effectiveEnd = analysis?.end_date || history[history.length - 1]?.date || endVal;
 
   if (!analysis) {
-    const failure = describeAnalysisFailure(symbol, dataMode);
+    const failure = describeAnalysisFailure(symbol, dataMode, analysisPath);
     document.getElementById('a-metrics').innerHTML =
       `<div class="col-span-5 text-center py-8 text-slate-500">
         <p class="text-2xl mb-2">⚠️</p>
@@ -1955,6 +2009,7 @@ async function runAnalysisTask() {
     symbol.length + startVal.length + endVal.length,
     JSON.stringify(analysis).length,
   );
+  await initSidebar();
   return true;
 }
 
@@ -2042,7 +2097,7 @@ async function runComparisonTask() {
   });
 
   if (!result || !Array.isArray(result.stocks) || !result.stocks.length) {
-    const msg = window._lastApiError || '后端未返回可用的对比数据';
+    const msg = getApiFailure('/comparison', '后端未返回可用的对比数据').message;
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-sm text-red-600">多股对比失败：${escapeHtml(msg)}</td></tr>`;
     }
@@ -2184,6 +2239,7 @@ async function sendChatBackend(userText) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: userText,
+      session_id: currentChatSessionId,
       history: chatHistory.slice(-12),
       data_mode: getDataSource()
     })
@@ -2192,7 +2248,7 @@ async function sendChatBackend(userText) {
   const elapsedMs = Math.round(performance.now() - t0);
 
   if (!res) {
-    const msg = window._lastApiError || '后端 /chat 不可用';
+    const msg = getApiFailure('/chat', '后端 /chat 不可用').message;
     bubble.innerHTML =
       `<div class="text-red-500 text-sm">⚠️ Agent 调用失败：${escapeHtml(msg)}<br>
        <span class="text-slate-400 text-xs">已停止本次回答，不使用任何本地模拟回复。</span></div>`;
@@ -2202,6 +2258,7 @@ async function sendChatBackend(userText) {
   }
 
   const fullText = res.reply || res.message || '无回复';
+  currentChatSessionId = res.session_id || currentChatSessionId;
 
   let toolStepsHtml = '';
   if (Array.isArray(res.tool_steps) && res.tool_steps.length > 0) {
@@ -2244,6 +2301,7 @@ async function sendChatBackend(userText) {
 
   bubble.innerHTML = `<p>${mdToHtml(fullText)}</p>${toolStepsHtml}${guardrailHtml}${metaHtml}`;
   chatHistory.push({ role: 'assistant', content: fullText });
+  initSidebar();
   // 观测指标使用真实往返耗时，不用随机数
   addObsCall(
     'chat_agent',
@@ -2285,7 +2343,7 @@ function appendMessage(role, text, tools) {
   if (role === 'user') {
     msgs.insertAdjacentHTML('beforeend',
       `<div class="flex justify-end gap-3">
-        <div class="bg-blue-500 text-white px-4 py-3 rounded-lg text-sm max-w-lg leading-relaxed">${text}</div>
+        <div class="bg-blue-500 text-white px-4 py-3 rounded-lg text-sm max-w-lg leading-relaxed">${escapeHtml(text)}</div>
         <div class="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold text-slate-600">我</div>
       </div>`);
   } else {
@@ -3309,7 +3367,7 @@ async function runBacktestTask() {
   });
 
   if (!result) {
-    const msg = window._lastApiError || '后端未返回回测结果';
+    const msg = getApiFailure('/backtest', '后端未返回回测结果').message;
     document.getElementById('bt-metrics').innerHTML =
       `<div class="col-span-5 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">回测失败：${msg}</div>`;
     if (tbody) tbody.innerHTML = '';

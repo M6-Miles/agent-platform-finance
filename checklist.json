@@ -2,7 +2,7 @@
   "version": "3.1",
   "project": "通用Agent平台及证券金融分析应用",
   "updated_at": "2026-08-14",
-  "test_count": 1604,
+  "test_count": 1609,
   "_status_schema": {
     "implemented": "功能代码已实现（可单独调用/测试）",
     "integrated": "已接入主应用链路（FastAPI / 浏览器前端 / ApplicationService / 完整 Pipeline）",

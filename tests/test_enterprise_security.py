@@ -232,6 +232,32 @@ def test_user_cannot_read_another_users_session(tmp_path, monkeypatch) -> None:
     assert client.get(f"/sessions/{session_id}/messages", headers=alice_headers).status_code == 200
 
 
+def test_analysis_history_is_scoped_to_its_owner(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch, registration_enabled=True)
+    admin = client.post(
+        "/auth/register", json={"username": "admin", "password": "strong-pass-123"}
+    ).json()
+    member = client.post(
+        "/auth/register", json={"username": "member", "password": "strong-pass-456"}
+    ).json()
+    admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+    member_headers = {"Authorization": f"Bearer {member['access_token']}"}
+
+    assert client.get(
+        "/analysis/DEMO001?data_mode=offline", headers=member_headers
+    ).status_code == 200
+    assert client.get(
+        "/analysis/DEMO002?data_mode=offline", headers=admin_headers
+    ).status_code == 200
+
+    member_history = client.get("/analysis-history", headers=member_headers)
+    admin_history = client.get("/analysis-history", headers=admin_headers)
+    assert member_history.status_code == 200
+    assert [item["symbol"] for item in member_history.json()] == ["DEMO001"]
+    assert admin_history.status_code == 200
+    assert {item["symbol"] for item in admin_history.json()} == {"DEMO001", "DEMO002"}
+
+
 def test_security_headers_readiness_and_database_backup(tmp_path, monkeypatch) -> None:
     client = _client(tmp_path, monkeypatch)
     health = client.get("/health")

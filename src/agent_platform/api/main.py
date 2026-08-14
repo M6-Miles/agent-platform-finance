@@ -742,6 +742,7 @@ def list_securities() -> list[dict[str, str]]:
 @app.get("/analysis/{symbol}", response_model=SecurityAnalysisResponse)
 def security_analysis(
     symbol: str,
+    request: Request,
     start: date | None = None,
     end: date | None = None,
     data_mode: str = Query("auto", pattern="^(offline|auto)$"),
@@ -772,9 +773,10 @@ def security_analysis(
         # 记录到存储（可选）。trigger 沿用既有契约 "direct"：
         # 用户直接请求分析端点 → direct；Agent 工具调用 → agent_tool。
         try:
-            get_application_service().store.add_analysis(
+            record = get_application_service().store.add_analysis(
                 result, trigger="direct", session_id=None
             )
+            _claim(request, "analysis", record.id)
         except Exception:
             pass  # 存储失败不影响响应
 
@@ -864,11 +866,17 @@ def list_analysis_history(
     request: Request,
     limit: int = Query(default=20, ge=1, le=100),
 ) -> list[dict[str, Any]]:
-    _require_admin(request)
-    return [
+    records = [
         record_to_dict(record)
         for record in get_application_service().list_analysis_history(limit)
     ]
+    principal = _principal(request)
+    if principal is None or principal.is_admin:
+        return records
+    owned = get_application_service().store.owned_resource_ids(
+        "analysis", principal.user_id
+    )
+    return [record for record in records if record["id"] in owned]
 
 
 @app.delete("/sessions/{session_id}")
