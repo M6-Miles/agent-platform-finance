@@ -143,9 +143,18 @@ def test_fact_labeled_output_computes_hallucination_rate():
         provider=SequenceProvider(responses), provider_kind="simulated", tasks=tasks
     )
     evaluation = evaluate_labeled_replay(result, tasks)
+    assert result.task_results[0].harness_on_status == "passed"
+    assert result.task_results[1].harness_on_status == "blocked"
+    assert any(
+        "FactSnapshotValidator" in item
+        for item in result.task_results[1].guardrail_violations
+    )
     assert evaluation["fact_checked_count"] == 2
     assert evaluation["hallucination_count"] == 1
     assert evaluation["hallucination_rate"] == 0.5
+    assert evaluation["hallucination_blocked_count"] == 1
+    assert evaluation["hallucination_block_rate"] == 1.0
+    assert evaluation["normal_false_positive_rate"] == 0.0
 
 
 def test_percentiles_include_p50_p95_p99():

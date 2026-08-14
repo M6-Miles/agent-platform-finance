@@ -179,6 +179,40 @@ def _sanitize_value(value: Any) -> Any:
     return value
 
 
+def _nested_output_value(output: dict[str, Any], path: str) -> Any:
+    current: Any = output
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _fact_snapshot_violations(
+    output: dict[str, Any], checks: list[dict[str, Any]] | None,
+) -> list[str]:
+    """逐字段核验受信事实快照；不调用模型，也不补写模型输出。"""
+    violations: list[str] = []
+    for check in checks or []:
+        path = str(check.get("path") or "").strip()
+        if not path:
+            continue
+        expected = check.get("expected")
+        actual = _nested_output_value(output, path)
+        tolerance = check.get("tolerance")
+        matched = actual == expected
+        if tolerance is not None:
+            try:
+                matched = abs(float(actual) - float(expected)) <= float(tolerance)
+            except (TypeError, ValueError):
+                matched = False
+        if not matched:
+            violations.append(
+                f"FactSnapshotValidator: {path} 与受信事实快照不一致"
+            )
+    return violations
+
+
 def _sanitize_exception(exc: Exception) -> str:
     """脱敏异常消息（不泄漏 Key）。"""
     msg = str(exc)
@@ -638,6 +672,15 @@ def run_real_llm_replay_experiment(
                         blocked = True
                         blocked_count += 1
                         break
+                if not blocked:
+                    fact_violations = _fact_snapshot_violations(
+                        parsed_output, task.get("fact_checks")
+                    )
+                    if fact_violations:
+                        harness_on_status = "blocked"
+                        violations.extend(fact_violations)
+                        blocked = True
+                        blocked_count += 1
             elif harness_off_status == "schema_error" or harness_off_status == "json_error":
                 # OFF 是 schema_error，ON 必须是 blocked（因为不符合 Schema）
                 harness_on_status = "blocked"

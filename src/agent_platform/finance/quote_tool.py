@@ -14,8 +14,9 @@
 from __future__ import annotations
 
 import re
+import math
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 
 from agent_platform.finance.data_status import (
     STATUS_FALLBACK,
@@ -197,6 +198,18 @@ def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> 
     if not raw.get("updated_at"):
         raise QuoteToolError("行情工具返回的数据缺少 updated_at 字段")
 
+    returned_symbol = str(raw["symbol"]).strip().upper()
+    if returned_symbol != normalized_symbol:
+        raise QuoteToolError(
+            f"行情工具返回证券代码不一致：请求 {normalized_symbol}，返回 {returned_symbol}"
+        )
+
+    updated_at = str(raw["updated_at"]).strip()
+    try:
+        datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise QuoteToolError(f"行情工具返回的 updated_at 不是 ISO 8601：{updated_at}") from exc
+
     try:
         price = float(raw["price"])
         prev_close = float(raw.get("prev_close") or price)
@@ -205,14 +218,28 @@ def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> 
             f"行情工具返回的价格无法解析：{raw.get('price')!r}"
         ) from exc
 
-    if price <= 0:
+    if not math.isfinite(price) or price <= 0:
         raise QuoteToolError(f"行情工具返回的价格非正数：{price}")
-    if prev_close <= 0:
+    if not math.isfinite(prev_close) or prev_close <= 0:
         raise QuoteToolError(f"行情工具返回的昨收价非正数：{prev_close}")
 
     change_pct = raw.get("change_pct")
+    computed_change_pct = (price - prev_close) / prev_close * 100.0
     if change_pct is None:
-        change_pct = ((price - prev_close) / prev_close * 100.0) if prev_close else 0.0
+        change_pct = computed_change_pct
+    try:
+        change_pct = float(change_pct)
+    except (TypeError, ValueError) as exc:
+        raise QuoteToolError(f"行情工具返回的涨跌幅无法解析：{change_pct!r}") from exc
+    if not math.isfinite(change_pct):
+        raise QuoteToolError(f"行情工具返回的涨跌幅不是有限值：{change_pct}")
+    # 上游通常保留两位小数，允许 0.05 个百分点的舍入误差。
+    if abs(change_pct - computed_change_pct) > 0.05:
+        raise QuoteToolError(
+            "行情价格与涨跌幅不一致："
+            f"现价={price}，昨收={prev_close}，返回涨跌幅={change_pct:.4f}%，"
+            f"重算={computed_change_pct:.4f}%"
+        )
 
     data_status = str(raw.get("data_status") or "")
     if not data_status:
@@ -224,14 +251,14 @@ def get_latest_quote(symbol: str, *, data_mode: str = "auto", provider=None) -> 
         raise QuoteToolError(f"行情工具返回的 data_status 无效：{data_status}")
 
     return QuotePayload(
-        symbol=str(raw.get("symbol") or normalized_symbol),
+        symbol=returned_symbol,
         name=str(raw.get("name") or normalized_symbol),
         price=round(price, 2),
         prev_close=round(prev_close, 2),
-        change_pct=round(float(change_pct), 2),
+        change_pct=round(change_pct, 2),
         market=str(raw.get("market") or ""),
         source=str(raw.get("source") or ""),
-        updated_at=str(raw.get("updated_at") or datetime.now(UTC).isoformat()),
+        updated_at=updated_at,
         data_status=data_status,
         fallback_reason=raw.get("fallback_reason"),
     )

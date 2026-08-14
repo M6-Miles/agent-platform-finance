@@ -1596,3 +1596,13 @@ $ .venv\Scripts\python.exe Scripts\run_real_llm_replay.py --provider deepseek
 - 最终全量测试：1609 collected；1608 passed，1 skipped，0 failed。pyflakes、compileall、前端 JavaScript 语法检查通过。
 - 更新 README、PROJECT_STATUS.md、checklist.json、progress.txt、deliverables_report.md、项目总结文档.docx 和项目小白说明文档.docx，统一最新口径。
 - 两份 Word 文档完成结构检查；本机缺少 LibreOffice，Word PDF 导出未成功，未声称完成页面图片级视觉验收。
+
+## 2026-08-14 原始说明书验收增强
+
+- 修复 `validate_deliverables.py` 将 LangGraph `interrupt()` 暂停误判为 `no_trade` 的缺陷；离线 20 股真实分布由错误的 `no_trade=20` 纠正为 `manual_review=20`，工作流仍为 20/20 完成、0 异常。
+- 完成新版 100 条真实 DeepSeek 企业评测：标签匹配率 91.0%、违规召回率 100%、正常误报率 0%、Provider 错误率 0%、P95 2.821 秒。
+- 固定事实逐字段校验正式进入 Harness ON；本轮 40 条固定事实响应未观测到事实错误，因此事实错误阻断率诚实记为 N/A。无效下游动作资格 Harness OFF 60 次、ON 0 次，降幅 100%，未调用任何交易接口。
+- 真实 LLM 报告统一为归档报告 + 权威 `latest` + 小型 `latest_attempt` 索引；无凭证跳过和 3 条冒烟不再覆盖 100 条成功报告。
+- 行情工具增加证券代码、ISO 8601 时间、有限数值以及现价/昨收/涨跌幅一致性校验；600519 腾讯公开快照实测通过。
+- 增加 `Scripts/start_project.ps1`、`requirements.lock` 和 docs 可选依赖；README 启动入口统一到 FastAPI 8003。
+- 全量验证：1621 collected；1620 passed，1 skipped，0 failed。pyflakes、compileall、PowerShell 语法、JSON 和 `git diff --check` 通过。

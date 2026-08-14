@@ -1,6 +1,6 @@
 # 通用 Agent 平台及证券金融分析应用（本地演示版）
 
-这是一版面向小白的本地演示项目：你可以在自己的电脑上启动一个简单的 Agent 应用，用内置样例证券数据完成行情分析和问答演示。
+
 
 > 重要提醒：本项目默认使用 Mock Agent 和内置样例数据，不调用真实大模型、不访问真实证券数据源、不产生 API 费用。**可选地**，你可以启用 AkShare 接入 A 股真实日线数据（需联网，免费）。所有分析仅供研究参考，不构成投资建议，也不支持自动下单或交易。
 
@@ -38,7 +38,7 @@
 - 连续对话上下文（Agent 加载历史消息）
 
 ### 测试覆盖
-- **1609 项测试收集，1608 项通过、1 项跳过、0 失败**（2026-08-14 实测），覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、真实 LLM 回放框架与天气 Demo。
+- **1621 项测试收集，1620 项通过、1 项跳过、0 失败**（2026-08-14 实测）。准确数量仍以 `python -m pytest --collect-only` 的当前输出为准。测试覆盖数据库、鉴权、Agent、指标、API、数据源、LangGraph、Guardrail、回测、模拟盘、真实 LLM 回放框架与天气 Demo。
 
 ## 2. 项目不会做什么
 
@@ -117,8 +117,16 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ```bash
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev,ui]"
+python -m pip install -e ".[dev,ui,docs]"
 ```
+
+如需尽量复现本次 Windows 验证环境，可使用版本约束快照：
+
+```powershell
+python -m pip install -e ".[dev,ui,docs,akshare,llm]" -c requirements.lock
+```
+
+`requirements.lock` 是当前已验证环境的精确版本快照；跨操作系统部署仍应重新执行测试。
 
 正常情况下会安装 FastAPI、Streamlit、pandas、pytest 等依赖。
 
@@ -248,11 +256,7 @@ python -m pytest -q -p no:cacheprovider tests/test_langgraph_workflow.py
 python -m pytest -q -m "not slow"
 ```
 
-正常情况下应看到全部通过：
-
-```text
-1608 passed, 1 skipped, 0 failed（1609 collected）
-```
+正常情况下应看到全部通过；准确数量以命令本次输出为准，避免新增测试后文档数字失效。
 
 > 该 warning 来自 `fastapi/testclient.py` 的 `StarletteDeprecationWarning`（第三方库，
 > 非本项目代码）；1 项 skipped 为需要真实网络的联网用例。
@@ -281,37 +285,52 @@ python Scripts/validate_deliverables.py --online
 python Scripts/validate_deliverables.py --online --tushare-token $TUSHARE_TOKEN
 ```
 
-离线验证运行 ≥20 只股票的完整投研流程，输出四类计数（execute / manual_review / block / error），
+离线验证运行 ≥20 只股票的完整投研流程，输出五类互斥计数（execute / manual_review / block / no_trade / error），
 完整报告写入 `docs/deliverables_report.md`。
 
 ## 9. 启动 FastAPI 后端
 
+Windows PowerShell 推荐使用一键启动脚本：
+
+```powershell
+.\Scripts\start_project.ps1
+```
+
+默认访问地址为 `http://127.0.0.1:8003`。指定其他端口：
+
+```powershell
+.\Scripts\start_project.ps1 -Port 8010
+```
+
+也可以使用下面的通用命令手动启动：
+
 ```bash
-uvicorn agent_platform.api.main:app --reload
+.\.venv\Scripts\python.exe -m uvicorn agent_platform.api.main:app --host 127.0.0.1 --port 8003
 ```
 
 正常情况下会看到类似：
 
 ```text
-Uvicorn running on http://127.0.0.1:8000
+Uvicorn running on http://127.0.0.1:8003
 ```
 
 打开浏览器访问：
 
-- 健康检查：http://127.0.0.1:8000/health
-- 接口文档：http://127.0.0.1:8000/docs
+- 主页面：http://127.0.0.1:8003/
+- 健康检查：http://127.0.0.1:8003/health
+- 接口文档：http://127.0.0.1:8003/docs
 
-如果端口 8000 被占用，可改用：
+如果端口 8003 被占用，可改用：
 
-```bash
-uvicorn agent_platform.api.main:app --reload --port 8010
+```powershell
+.\Scripts\start_project.ps1 -Port 8010
 ```
 
 停止后端：在终端按 `Ctrl + C`。
 
-## 10. 启动 Streamlit 页面
+## 10. 启动可选 Streamlit 旧版页面
 
-另开一个终端，进入同一个项目目录并激活虚拟环境，然后执行：
+主界面已经由 FastAPI 在 `8003` 端口直接提供。仅在需要对照旧版 Streamlit 页面时，另开终端执行：
 
 ```bash
 streamlit run src/agent_platform/ui/streamlit_app.py

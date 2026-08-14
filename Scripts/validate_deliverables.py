@@ -120,6 +120,31 @@ def classify_preflight_results(results: list[dict]) -> dict[str, int]:
     }
 
 
+def classify_graph_state(state: dict) -> str:
+    """把一次 LangGraph 返回状态归一化为五路验收结果。
+
+    ``graph.invoke`` 在 ``interrupt()`` 处暂停时，节点尚未返回，因此
+    ``final_action`` 仍可能为空，状态也可能保留为 ``trading``。唯一可靠的
+    暂停标志是 LangGraph 返回的 ``__interrupt__``。过去把这种状态默认为
+    ``no_trade``，会把人工审批路径错误计入低置信度退出。
+    """
+    action = state.get("final_action")
+    if action in {"execute", "manual_review", "block", "no_trade", "error"}:
+        return action
+    if state.get("__interrupt__"):
+        return "manual_review"
+    if state.get("har_required"):
+        return "manual_review"
+    status = str(state.get("status") or "")
+    if status == "no_trade":
+        return "no_trade"
+    if status == "error" or state.get("errors"):
+        return "error"
+    # final_action 为空且没有中断/明确终态，说明工作流停在未知状态。
+    # 防御性归为 error，不能再静默美化为 no_trade。
+    return "error"
+
+
 def _print_e2e_summary(results: list[dict]) -> None:
     """打印五路计数汇总（execute/manual_review/block/no_trade/error）。"""
     counts = classify_preflight_results(results)
@@ -157,13 +182,8 @@ def run_e2e_batch_langgraph() -> list[dict]:
             state = run_securities_analysis(symbol=symbol, graph=graph)
             elapsed = time.time() - t0
 
-            action = state.get("final_action")
+            action = classify_graph_state(state)
             status_val = state.get("status", "unknown")
-
-            # har_required 路径：trader 触发了 HumanApprovalRequired
-            # 在 validate 脚本中视为 manual_review（不 interrupt 等待真人）
-            if state.get("har_required", False) and action is None:
-                action = "manual_review"
 
             if action == "execute":
                 status = "✅ execute"
@@ -239,13 +259,8 @@ def run_e2e_batch_offline() -> list[dict]:
             )
             elapsed = time.time() - t0
 
-            action = state.get("final_action")
+            action = classify_graph_state(state)
             status_val = state.get("status", "unknown")
-
-            # har_required 路径：trader 触发了 HumanApprovalRequired
-            # 在 validate 脚本中视为 manual_review（不 interrupt 等待真人）
-            if state.get("har_required", False) and action is None:
-                action = "manual_review"
 
             if action == "execute":
                 status = "✅ execute"

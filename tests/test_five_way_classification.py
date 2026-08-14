@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "Scripts"))
 
-from validate_deliverables import classify_preflight_results
+from validate_deliverables import classify_graph_state, classify_preflight_results
 
 
 def test_all_execute():
@@ -136,3 +136,20 @@ def test_real_error_only():
     assert counts["no_trade"] == 1
     assert counts["block"] == 1
     assert sum(counts.values()) == 4
+
+
+def test_graph_interrupt_is_manual_review_not_no_trade():
+    state = {
+        "status": "trading",
+        "final_action": None,
+        "__interrupt__": ({"type": "manual_review"},),
+    }
+    assert classify_graph_state(state) == "manual_review"
+
+
+def test_graph_explicit_no_trade_requires_no_trade_terminal_state():
+    assert classify_graph_state({"status": "no_trade"}) == "no_trade"
+
+
+def test_graph_unknown_incomplete_state_is_error():
+    assert classify_graph_state({"status": "trading"}) == "error"

@@ -1,0 +1,9 @@
+{
+  "status": "completed",
+  "provider_kind": "real",
+  "sample_count": 100,
+  "suite": "enterprise100",
+  "run_date": "2026-08-14",
+  "json_report": "docs/experiments/daily/2026-08-14/real_llm_replay_deepseek_20260814_122947.json",
+  "markdown_report": "docs/experiments/daily/2026-08-14/real_llm_replay_deepseek_20260814_122947.md"
+}

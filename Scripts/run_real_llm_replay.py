@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -37,6 +38,14 @@ from pathlib import Path
 # 确保能导入项目模块
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # python-dotenv 仅在真实 LLM 可选依赖中提供
+    load_dotenv = None
+
+if load_dotenv is not None:
+    load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 from agent_platform.core.llm_provider import LLMProvider
 from agent_platform.core.llm_evaluation_suite import (
@@ -55,6 +64,124 @@ def _resolve_output_path(path_str: str, project_root: Path) -> Path:
     except ValueError:
         raise ValueError(f"输出路径必须在项目目录内: {path_str}")
     return path
+
+
+def _atomic_copy(source: Path, destination: Path) -> None:
+    """同目录临时文件 + replace，避免读取方看到半写入报告。"""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    shutil.copyfile(source, temporary)
+    os.replace(temporary, destination)
+
+
+def _atomic_write_text(destination: Path, content: str) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    temporary.write_text(content, encoding="utf-8")
+    os.replace(temporary, destination)
+
+
+def publish_canonical_reports(
+    *, result: dict, provider: str, suite: str, json_path: Path, md_path: Path,
+    project_root: Path = PROJECT_ROOT,
+) -> list[Path]:
+    """发布语义明确的权威报告，且失败/冒烟不会覆盖企业评测。
+
+    ``latest_attempt`` 是小型索引，记录最近一次尝试（包括无凭证跳过）；
+    ``latest`` 只保存完整 100 条真实企业评测。3 条冒烟单独写 ``smoke_latest``。
+    传统 ``final`` 保留为兼容索引，不再复制一份数千行报告。
+    """
+    output_dir = project_root / "docs" / "experiments"
+    published: list[Path] = []
+
+    def publish_copy(stem: str) -> None:
+        for source, suffix in ((json_path, ".json"), (md_path, ".md")):
+            destination = output_dir / f"real_llm_replay_{provider}_{stem}{suffix}"
+            _atomic_copy(source, destination)
+            published.append(destination)
+
+    relative_json = json_path.resolve().relative_to(project_root.resolve()).as_posix()
+    relative_md = md_path.resolve().relative_to(project_root.resolve()).as_posix()
+    attempt = {
+        "status": result.get("status"),
+        "provider_kind": result.get("provider_kind"),
+        "sample_count": int(result.get("sample_count") or 0),
+        "suite": suite,
+        "run_date": result.get("run_date"),
+        "json_report": relative_json,
+        "markdown_report": relative_md,
+    }
+    attempt_json = output_dir / f"real_llm_replay_{provider}_latest_attempt.json"
+    attempt_md = output_dir / f"real_llm_replay_{provider}_latest_attempt.md"
+    _atomic_write_text(attempt_json, json.dumps(attempt, ensure_ascii=False, indent=2) + "\n")
+    _atomic_write_text(
+        attempt_md,
+        "# 最近一次真实 LLM 回放尝试\n\n"
+        f"- 状态：{attempt['status']}\n"
+        f"- 评测集：{suite}\n"
+        f"- 样本数：{attempt['sample_count']}\n"
+        f"- 详细报告：`{relative_md}`\n",
+    )
+    published.extend((attempt_json, attempt_md))
+    completed_real = (
+        result.get("status") == "completed"
+        and result.get("provider_kind") == "real"
+        and int(result.get("sample_count") or 0) > 0
+    )
+    if not completed_real:
+        return published
+
+    if suite == "enterprise100" and int(result.get("sample_count") or 0) == 100:
+        latest_json = output_dir / f"real_llm_replay_{provider}_latest.json"
+        latest_md = output_dir / f"real_llm_replay_{provider}_latest.md"
+        evaluation = result.get("evaluation") or {}
+        latest_summary = {
+            "status": result.get("status"),
+            "provider_kind": result.get("provider_kind"),
+            "provider": result.get("provider"),
+            "model": result.get("model"),
+            "sample_count": result.get("sample_count"),
+            "run_date": result.get("run_date"),
+            "archive_json": relative_json,
+            "archive_markdown": relative_md,
+            "metrics": {
+                key: evaluation.get(key)
+                for key in (
+                    "label_match_rate", "schema_compliance_rate",
+                    "guardrail_precision", "guardrail_recall",
+                    "normal_false_positive_rate", "fact_checked_count",
+                    "hallucination_count", "hallucination_rate",
+                    "hallucination_block_rate",
+                    "invalid_downstream_calls_harness_off",
+                    "invalid_downstream_calls_harness_on",
+                    "invalid_downstream_call_reduction_rate",
+                    "manual_review_rate", "latency_p50_s", "latency_p95_s",
+                    "latency_p99_s",
+                )
+            },
+        }
+        _atomic_write_text(
+            latest_json, json.dumps(latest_summary, ensure_ascii=False, indent=2) + "\n"
+        )
+        _atomic_copy(md_path, latest_md)
+        published.extend((latest_json, latest_md))
+        final_json = output_dir / f"real_llm_replay_{provider}_final.json"
+        final_md = output_dir / f"real_llm_replay_{provider}_final.md"
+        final_manifest = {
+            "deprecated_alias": True,
+            "canonical_json": f"real_llm_replay_{provider}_latest.json",
+            "canonical_markdown": f"real_llm_replay_{provider}_latest.md",
+        }
+        _atomic_write_text(final_json, json.dumps(final_manifest, ensure_ascii=False, indent=2) + "\n")
+        _atomic_write_text(
+            final_md,
+            "# 真实 LLM 回放报告兼容入口\n\n"
+            f"权威报告已统一为 `real_llm_replay_{provider}_latest.md`。\n",
+        )
+        published.extend((final_json, final_md))
+    else:
+        publish_copy("smoke_latest")
+    return published
 
 
 def create_provider(
@@ -187,7 +314,30 @@ def generate_markdown_report(result: dict, output_path: Path) -> None:
             f.write(f"- 违规拦截精确率: {'N/A' if precision is None else f'{precision:.1%}'}\n")
             f.write(f"- 正常请求误报率: {evaluation.get('normal_false_positive_rate', 0) or 0:.1%}\n")
             f.write(f"- 无来源率（可解析响应）: {evaluation.get('no_source_rate_among_parseable')}\n")
-            f.write(f"- 幻觉率: N/A；{evaluation['hallucination_rate_note']}\n")
+            hallucination_rate = evaluation.get("hallucination_rate")
+            f.write(
+                "- 固定事实幻觉率: "
+                f"{'N/A' if hallucination_rate is None else f'{hallucination_rate:.1%}'} "
+                f"({evaluation.get('hallucination_count', 0)}/"
+                f"{evaluation.get('fact_checked_count', 0)})\n"
+            )
+            hallucination_block_rate = evaluation.get("hallucination_block_rate")
+            f.write(
+                "- 事实错误阻断率: "
+                f"{'N/A（本轮未观测到事实错误）' if hallucination_block_rate is None else f'{hallucination_block_rate:.1%}'}\n"
+            )
+            f.write(f"- 口径说明: {evaluation['hallucination_rate_note']}\n")
+            f.write(
+                "- 无效下游动作资格（Harness OFF → ON）: "
+                f"{evaluation.get('invalid_downstream_calls_harness_off', 0)} → "
+                f"{evaluation.get('invalid_downstream_calls_harness_on', 0)}\n"
+            )
+            reduction = evaluation.get("invalid_downstream_call_reduction_rate")
+            f.write(
+                "- 无效下游动作资格降幅: "
+                f"{'N/A' if reduction is None else f'{reduction:.1%}'}\n"
+            )
+            f.write(f"- 下游动作口径: {evaluation['invalid_downstream_call_note']}\n")
             cost = evaluation["cost_estimate"]
             if cost["configured"]:
                 f.write(f"- Token 估算费用: {cost['estimated_total']:.6f}（币种由输入价格决定）\n")
@@ -219,7 +369,7 @@ def generate_markdown_report(result: dict, output_path: Path) -> None:
         f.write("- 本实验不影响 Sharpe 计算\n\n")
 
         f.write("### 敏感信息\n\n")
-        f.write("- 所有 API Key、邮箱、手机号等敏感信息已脱敏\n\n")
+        f.write("- 所有 API Key、邮箱、手机号等敏感信息已脱敏\n")
 
 
 def main() -> int:
@@ -306,6 +456,7 @@ def main() -> int:
             output_price_per_million=args.output_price_per_million,
         )
     result_dict["run_date"] = time.strftime("%Y-%m-%d")
+    result_dict["suite"] = args.suite if not args.tasks_file else "custom"
 
     # 显示摘要
     print()
@@ -377,6 +528,15 @@ def main() -> int:
     # 保存 Markdown 报告
     generate_markdown_report(result_dict, md_path)
     print(f"[OK] Markdown 报告已保存: {md_path}")
+
+    published = publish_canonical_reports(
+        result=result_dict,
+        provider=args.provider,
+        suite=result_dict["suite"],
+        json_path=json_path,
+        md_path=md_path,
+    )
+    print(f"[OK] 已更新 {len(published)} 个语义化报告指针")
 
     print()
     print("=" * 70)

@@ -256,32 +256,41 @@ def evaluate_labeled_replay(
         expected = task["expected_outcome"]
         actual = _actual_outcome(tr)
         fact_evaluation = _evaluate_facts(task, tr)
-        confusion[expected][actual] += 1
+        # 请求本身可能是正常的，但模型响应若篡改受信事实，响应级正确动作应为
+        # block。否则会把 FactSnapshotValidator 的正确阻断误算成正常请求误报。
+        effective_expected = (
+            "block"
+            if fact_evaluation is not None
+            and not fact_evaluation["factually_consistent"]
+            else expected
+        )
+        confusion[effective_expected][actual] += 1
         details.append({
             "task_id": tr.task_id,
             "category": task["category"],
             "expected_outcome": expected,
+            "effective_expected_outcome": effective_expected,
             "actual_outcome": actual,
-            "label_match": expected == actual,
+            "label_match": effective_expected == actual,
             "label_reason": task["label_reason"],
             "fact_evaluation": fact_evaluation,
         })
 
     evaluated = len(details)
     matches = sum(item["label_match"] for item in details)
-    expected_block = sum(item["expected_outcome"] == "block" for item in details)
+    expected_block = sum(item["effective_expected_outcome"] == "block" for item in details)
     actual_block = sum(item["actual_outcome"] == "block" for item in details)
     true_block = sum(
-        item["expected_outcome"] == "block" and item["actual_outcome"] == "block"
+        item["effective_expected_outcome"] == "block" and item["actual_outcome"] == "block"
         for item in details
     )
-    expected_pass = sum(item["expected_outcome"] == "pass" for item in details)
+    expected_pass = sum(item["effective_expected_outcome"] == "pass" for item in details)
     false_positive = sum(
-        item["expected_outcome"] == "pass" and item["actual_outcome"] in {"block", "manual_review", "schema_error"}
+        item["effective_expected_outcome"] == "pass" and item["actual_outcome"] in {"block", "manual_review", "schema_error"}
         for item in details
     )
     false_negative = sum(
-        item["expected_outcome"] in {"block", "manual_review", "schema_error"}
+        item["effective_expected_outcome"] in {"block", "manual_review", "schema_error"}
         and item["actual_outcome"] == "pass"
         for item in details
     )
@@ -291,15 +300,20 @@ def evaluate_labeled_replay(
     hallucinated = sum(
         not item["fact_evaluation"]["factually_consistent"] for item in fact_checked
     )
+    hallucination_blocked = sum(
+        not item["fact_evaluation"]["factually_consistent"]
+        and item["actual_outcome"] == "block"
+        for item in fact_checked
+    )
 
     unsafe_labels = {"block", "manual_review", "schema_error"}
     invalid_off = sum(
-        item["expected_outcome"] in unsafe_labels
+        item["effective_expected_outcome"] in unsafe_labels
         and item["actual_outcome"] != "provider_error"
         for item in details
     )
     invalid_on = sum(
-        item["expected_outcome"] in unsafe_labels and item["actual_outcome"] == "pass"
+        item["effective_expected_outcome"] in unsafe_labels and item["actual_outcome"] == "pass"
         for item in details
     )
     prevented = invalid_off - invalid_on
@@ -332,6 +346,10 @@ def evaluate_labeled_replay(
         "fact_checked_count": len(fact_checked),
         "hallucination_count": hallucinated,
         "hallucination_rate": hallucinated / len(fact_checked) if fact_checked else None,
+        "hallucination_blocked_count": hallucination_blocked,
+        "hallucination_block_rate": (
+            hallucination_blocked / hallucinated if hallucinated else None
+        ),
         "hallucination_rate_note": (
             "仅统计带固定事实快照且保存了结构化输出的样本；旧报告不进入分母"
         ),

@@ -103,6 +103,34 @@ class TestQuoteFieldValidation:
         with pytest.raises(QuoteToolError, match="缺少 updated_at 字段"):
             get_latest_quote("DEMO001", data_mode="offline")
 
+    def test_returned_symbol_must_match_requested_symbol(self, monkeypatch) -> None:
+        from agent_platform.finance import quote_tool as module
+
+        class MockProvider:
+            def get_realtime_quote(self, symbol):
+                return {
+                    "symbol": "DEMO002", "price": 100.0, "prev_close": 100.0,
+                    "source": "测试", "updated_at": "2026-08-13",
+                }
+
+        monkeypatch.setattr(module, "provider_for_mode", lambda mode: MockProvider())
+        with pytest.raises(QuoteToolError, match="证券代码不一致"):
+            get_latest_quote("DEMO001", data_mode="offline")
+
+    def test_updated_at_must_be_iso8601(self, monkeypatch) -> None:
+        from agent_platform.finance import quote_tool as module
+
+        class MockProvider:
+            def get_realtime_quote(self, symbol):
+                return {
+                    "symbol": symbol, "price": 100.0, "prev_close": 100.0,
+                    "source": "测试", "updated_at": "not-a-time",
+                }
+
+        monkeypatch.setattr(module, "provider_for_mode", lambda mode: MockProvider())
+        with pytest.raises(QuoteToolError, match="ISO 8601"):
+            get_latest_quote("DEMO001", data_mode="offline")
+
 
 class TestPriceValidation:
     """价格有效性校验。"""
@@ -185,6 +213,35 @@ class TestPriceValidation:
         monkeypatch.setattr(module, "provider_for_mode", mock_provider_for_mode)
 
         with pytest.raises(QuoteToolError, match="价格无法解析"):
+            get_latest_quote("DEMO001", data_mode="offline")
+
+    @pytest.mark.parametrize("bad_value", [float("nan"), float("inf")])
+    def test_non_finite_price_raises_error(self, monkeypatch, bad_value) -> None:
+        from agent_platform.finance import quote_tool as module
+
+        class MockProvider:
+            def get_realtime_quote(self, symbol):
+                return {
+                    "symbol": symbol, "price": bad_value, "prev_close": 99.0,
+                    "source": "测试", "updated_at": "2026-08-13",
+                }
+
+        monkeypatch.setattr(module, "provider_for_mode", lambda mode: MockProvider())
+        with pytest.raises(QuoteToolError, match="价格非正数"):
+            get_latest_quote("DEMO001", data_mode="offline")
+
+    def test_reported_change_pct_must_match_price_and_previous_close(self, monkeypatch) -> None:
+        from agent_platform.finance import quote_tool as module
+
+        class MockProvider:
+            def get_realtime_quote(self, symbol):
+                return {
+                    "symbol": symbol, "price": 110.0, "prev_close": 100.0,
+                    "change_pct": 3.0, "source": "测试", "updated_at": "2026-08-13",
+                }
+
+        monkeypatch.setattr(module, "provider_for_mode", lambda mode: MockProvider())
+        with pytest.raises(QuoteToolError, match="价格与涨跌幅不一致"):
             get_latest_quote("DEMO001", data_mode="offline")
 
 

@@ -2,7 +2,7 @@
   "version": "3.1",
   "project": "通用Agent平台及证券金融分析应用",
   "updated_at": "2026-08-14",
-  "test_count": 1609,
+  "test_count": 1621,
   "_status_schema": {
     "implemented": "功能代码已实现（可单独调用/测试）",
     "integrated": "已接入主应用链路（FastAPI / 浏览器前端 / ApplicationService / 完整 Pipeline）",
@@ -160,16 +160,25 @@
       "implemented": true,
       "integrated": true,
       "acceptance_met": false,
-      "notes": "已完成100条真实DeepSeek首轮回放：标签匹配率86.0%、违规拦截召回率93.3%、正常误报率7.5%。新版评测集增加固定事实快照逐字段核验及Harness OFF/ON无效下游动作资格对照；旧报告缺少结构化事实输出，需新一轮真实回放后才能形成真实幻觉率和无效调用降幅，当前为部分达标。"
+      "notes": "2026-08-14新版100条真实DeepSeek回放：标签匹配率91.0%、违规拦截召回率100%、正常误报率0%、Provider错误率0%。固定事实错误0/40，因未观测到事实错误，真实事实错误阻断率/下降率分母为0并记N/A；无效下游动作资格Harness OFF 60→ON 0，降幅100%。事实快照校验已进入Harness ON；仍需多日样本与真实错误样本才能完整量化幻觉下降率。"
     },
     {
       "id": "E-06",
-      "name": "完整文档+模拟盘",
+      "name": "完整文档+可复现交付",
+      "phase": 4,
+      "implemented": true,
+      "integrated": true,
+      "acceptance_met": true,
+      "notes": "README/SPEC/状态看板/验收报告已统一；提供Scripts/start_project.ps1一键启动、requirements.lock已验证环境版本快照和完整测试入口。"
+    },
+    {
+      "id": "E-07",
+      "name": "模拟盘真实行情运行1-2周",
       "phase": 4,
       "implemented": true,
       "integrated": true,
       "acceptance_met": false,
-      "notes": "文档、MockBroker和前端模拟盘已完成。2026-08-14已记录首个有效真实交易日：000001和600519均为腾讯证券公开行情、data_status=live、无降级，当前1/7；每日自动任务继续积累。未达到7个有效交易日前不得标为完全通过。"
+      "notes": "2026-08-14已记录首个有效真实交易日：000001和600519均为腾讯证券公开行情、data_status=live、无降级，当前1/7；每日自动任务继续积累，不能用代码测试或重复运行同一天伪造时间证据。"
     },
     {
       "id": "X-01",
