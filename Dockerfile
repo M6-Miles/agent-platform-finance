@@ -25,6 +25,8 @@ COPY Rule ./Rule
 COPY Skill ./Skill
 COPY SubAgents ./SubAgents
 COPY MCP ./MCP
+COPY skill_catalog ./skill_catalog
+COPY skills ./skills
 COPY data/sample ./data/sample
 COPY data/reference ./data/reference
 
