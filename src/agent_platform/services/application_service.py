@@ -376,6 +376,7 @@ class ApplicationService:
         message: str,
         session_id: str | None = None,
         data_mode: str = "auto",
+        user_id: str = "anonymous",
     ) -> ChatServiceResult:
         normalized_message = message.strip()
         if not normalized_message:
@@ -582,6 +583,7 @@ class ApplicationService:
             runtime = build_runtime(
                 lambda symbol: self.analyze_security_as_markdown(symbol, session_id),
                 settings=self.settings,
+                user_id=user_id,
             )
         except (RuntimeError, ImportError) as exc:
             self.store.add_message(session_id, "user", normalized_message)

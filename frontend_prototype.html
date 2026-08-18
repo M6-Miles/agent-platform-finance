@@ -208,6 +208,9 @@
       <button onclick="navigate('weather')" id="nav-weather" class="nav-item w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2.5 text-slate-400">
         <span>🌤️</span> 天气分析
       </button>
+      <button onclick="navigate('skills')" id="nav-skills" class="nav-item w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2.5 text-slate-400">
+        <span>🧩</span> Skill 市场
+      </button>
     </nav>
   </div>
   <!-- 3. 数据源切换 -->
@@ -247,6 +250,7 @@
     <div id="user-menu" class="hidden absolute bottom-14 left-3 right-3 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-50">
       <button onclick="openProfileModal()" class="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors">⚙️ 个人设置</button>
       <button id="admin-users-menu-btn" onclick="openAdminUsersModal()" class="hidden w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors">用户管理</button>
+      <button onclick="navigate('skills')" class="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors">Skill 市场</button>
       <div class="border-t border-slate-700"></div>
       <button onclick="doLogout()" class="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-slate-700 transition-colors">退出登录</button>
     </div>
@@ -1061,6 +1065,17 @@
         </div>
       </div>
     </div>
+    <!-- ═══ Page 9: Skill 市场 ═══ -->
+    <div id="page-skills" class="page p-6">
+      <div class="max-w-6xl mx-auto">
+        <div class="flex flex-col sm:flex-row sm:items-end gap-3 mb-5">
+          <div class="flex-1"><h3 class="text-lg font-semibold text-slate-900">Skill 市场</h3><p class="text-sm text-slate-500 mt-1">搜索并安装到当前账号。其他用户不会看到或调用你的 Skill。</p></div>
+          <div class="flex gap-2"><input id="skill-market-search" oninput="loadSkillMarketplace()" type="search" placeholder="搜索名称、说明或作者" class="w-full sm:w-72 border border-slate-200 rounded-lg px-3 py-2 text-sm" /><button onclick="loadSkillMarketplace()" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">搜索</button></div>
+        </div>
+        <div id="skill-market-status" class="text-sm text-slate-500 mb-4">正在加载目录...</div>
+        <div id="skill-market-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+      </div>
+    </div>
     <!-- /页面容器 -->
   </div><!-- /main-content inner -->
 </div><!-- /main-content -->
@@ -1078,6 +1093,7 @@ const PAGE_META = {
   simtrade:   { title:'模拟盘',     subtitle:'MockBroker 本地撮合 · 市价/限价 · 持仓管理' },
   obs:        { title:'可观测性',   subtitle:'真实 API 调用耗时 · 成功率 · Guardrail 结果' },
   weather:    { title:'天气分析',   subtitle:'通用 Agent 平台 · 非金融领域演示 · Harness 校验' },
+  skills:     { title:'Skill 市场', subtitle:'搜索、安装和管理当前账号的 Agent Skill' },
 };
 
 // 模拟盘只缓存后端快照；现金、订单和持仓的事实来源是 SQLite + MockBroker API。
@@ -1546,6 +1562,7 @@ function navigate(page) {
   if (page === 'analysis') initAnalysisCharts();
   if (page === 'comparison') initComparisonCharts();
   if (page === 'obs') loadObservability();
+  if (page === 'skills') loadSkillMarketplace();
   if (page === 'simtrade') {
     loadPaperMonitorJobs();
     ensurePaperAccount().then(() => updateBrokerUI()).catch(error => {
@@ -5098,6 +5115,126 @@ async function changeUserRole(userId, role) {
   }
 }
 
+async function loadSkillMarketplace() {
+  const grid = document.getElementById('skill-market-grid');
+  const status = document.getElementById('skill-market-status');
+  if (!grid || !status) return;
+  status.textContent = '正在读取受信任 Skill 目录...';
+  try {
+    const query = encodeURIComponent(document.getElementById('skill-market-search')?.value || '');
+    const response = await authFetch(`${API_BASE}/skill-marketplace?q=${query}`, {signal: AbortSignal.timeout(25000)});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+    const skills = payload.skills || [];
+    grid.innerHTML = skills.map(skill => {
+      const id = encodeURIComponent(skill.id);
+      const name = encodeURIComponent(skill.name);
+      const installed = Boolean(skill.installed);
+      const permissions = (skill.permissions || []).join('、') || '无需额外权限';
+      const kindLabel = skill.kind === 'instruction' ? '说明型 Skill' : '可执行插件';
+      const integrityText = skill.sha256
+        ? skill.sha256
+        : (skill.integrity?.startsWith('git:')
+          ? `安装时计算 SHA256；Git 对象 ${skill.integrity.slice(4)}`
+          : '安装时计算并校验');
+      return `<article class="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-3">
+        <div class="flex items-start justify-between gap-3"><div><h4 class="font-semibold text-slate-900">${escapeHtml(skill.name)}</h4><p class="text-xs text-slate-500 mt-1">版本 ${escapeHtml(skill.version)} · ${escapeHtml(skill.author)} · ${kindLabel}</p></div>
+          <span class="px-2 py-1 rounded text-xs ${installed ? (skill.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700') : 'bg-slate-100 text-slate-600'}">${installed ? (skill.enabled ? '已启用' : '已停用') : '未安装'}</span></div>
+        <p class="text-sm text-slate-600 leading-relaxed flex-1">${escapeHtml(skill.description)}</p>
+        <dl class="text-xs text-slate-500 space-y-1"><div><dt class="inline">权限：</dt><dd class="inline">${escapeHtml(permissions)}</dd></div><div><dt class="inline">来源：</dt><dd class="inline break-all">${escapeHtml(skill.source)}</dd></div><div><dt class="inline">完整性：</dt><dd class="inline font-mono break-all">${escapeHtml(integrityText)}</dd></div></dl>
+        <div class="flex gap-2 pt-2 border-t border-slate-100">${installed
+          ? `<button onclick="toggleMySkill('${name}', ${!skill.enabled})" class="flex-1 px-3 py-2 rounded-lg ${skill.enabled ? 'border border-slate-200 text-slate-700' : 'bg-blue-600 text-white'} text-sm">${skill.enabled ? '停用' : '启用'}</button><button onclick="deleteMySkill('${name}')" class="px-3 py-2 rounded-lg border border-red-200 text-red-600 text-sm">删除</button>`
+          : `<button onclick="installMarketplaceSkill('${id}')" class="w-full px-3 py-2 rounded-lg bg-blue-600 text-white text-sm">下载并安装到我的账号</button>`}</div>
+      </article>`;
+    }).join('') || '<div class="col-span-full bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">没有匹配的 Skill</div>';
+    const remoteWarning = (payload.remote_errors || []).length ? ` 部分远程目录暂不可用：${payload.remote_errors[0]}` : '';
+    status.textContent = `目录中有 ${payload.total || 0} 个 Skill；安装、启停和删除只影响当前账号。${remoteWarning}`;
+  } catch (error) { grid.innerHTML = ''; status.textContent = `加载失败：${error.message}`; }
+}
+
+async function installMarketplaceSkill(encodedId) {
+  await skillMarketplaceRequest(`/skill-marketplace/${encodedId}/install`, {method: 'POST'}, 'Skill 已下载并安装到当前账号');
+}
+
+async function toggleMySkill(encodedName, enabled) {
+  await skillMarketplaceRequest(`/my/skills/${encodedName}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled})}, enabled ? 'Skill 已启用' : 'Skill 已停用');
+}
+
+async function deleteMySkill(encodedName) {
+  if (!confirm('删除后该 Skill 将从当前账号移除，确认继续吗？')) return;
+  await skillMarketplaceRequest(`/my/skills/${encodedName}`, {method: 'DELETE'}, 'Skill 已删除');
+}
+
+async function skillMarketplaceRequest(path, options, successMessage) {
+  const status = document.getElementById('skill-market-status');
+  try {
+    const response = await authFetch(`${API_BASE}${path}`, {...options, signal: AbortSignal.timeout(15000)});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+    status.textContent = successMessage;
+    await loadSkillMarketplace();
+  } catch (error) { status.textContent = `操作失败：${error.message}`; }
+}
+
+async function openAdminSkillsModal() {
+  if (authenticatedUser?.role !== 'admin') return;
+  document.getElementById('user-menu').classList.add('hidden');
+  document.getElementById('admin-skills-modal').classList.remove('hidden');
+  await loadAdminSkills();
+}
+
+function closeAdminSkillsModal() {
+  document.getElementById('admin-skills-modal').classList.add('hidden');
+}
+
+async function loadAdminSkills() {
+  const body = document.getElementById('admin-skills-body');
+  const status = document.getElementById('admin-skills-status');
+  body.innerHTML = '<tr><td colspan="5" class="px-3 py-5 text-center text-slate-400">加载中...</td></tr>';
+  try {
+    const response = await authFetch(`${API_BASE}/skills`, {signal: AbortSignal.timeout(8000)});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+    body.innerHTML = (payload.skills || []).map(skill => `
+      <tr class="border-t border-slate-100">
+        <td class="px-3 py-2 font-medium">${escapeHtml(skill.name)}</td>
+        <td class="px-3 py-2 text-slate-500">${escapeHtml(skill.version || '-')}</td>
+        <td class="px-3 py-2 text-slate-500">${escapeHtml(skill.description || '')}</td>
+        <td class="px-3 py-2"><span class="rounded px-2 py-1 text-xs ${skill.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${skill.status === 'ready' ? '可用' : '无效'}</span></td>
+        <td class="px-3 py-2 text-right"><button class="px-2 py-1 text-xs rounded ${skill.enabled ? 'bg-slate-100 text-slate-600' : 'bg-blue-600 text-white'}" onclick="toggleAdminSkill('${encodeURIComponent(skill.name)}', ${!skill.enabled})">${skill.enabled ? '停用' : '启用'}</button></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-5 text-center text-slate-400">暂无 Skill</td></tr>';
+    status.textContent = `已发现 ${payload.total || 0} 个 Skill`;
+  } catch (error) {
+    body.innerHTML = '<tr><td colspan="5" class="px-3 py-5 text-center text-red-500">加载失败</td></tr>';
+    status.textContent = error.message;
+  }
+}
+
+async function toggleAdminSkill(name, enabled) {
+  const status = document.getElementById('admin-skills-status');
+  try {
+    const response = await authFetch(`${API_BASE}/admin/skills/${name}`, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled}), signal: AbortSignal.timeout(8000),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+    status.textContent = `${payload.name} 已${payload.enabled ? '启用' : '停用'}，下一次对话生效`;
+    await loadAdminSkills();
+  } catch (error) { status.textContent = `操作失败：${error.message}`; }
+}
+
+async function reloadAdminSkills() {
+  const status = document.getElementById('admin-skills-status');
+  try {
+    const response = await authFetch(`${API_BASE}/admin/skills/reload`, {method: 'POST', signal: AbortSignal.timeout(10000)});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+    status.textContent = `重新扫描完成，共发现 ${payload.total || 0} 个 Skill`;
+    await loadAdminSkills();
+  } catch (error) { status.textContent = `重新扫描失败：${error.message}`; }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    15. window.onload — 初始化入口
 ═══════════════════════════════════════════════════════════════ */
@@ -5192,6 +5329,20 @@ window.onload = () => {
       <table class="w-full text-left text-sm"><thead><tr class="text-xs text-slate-500"><th class="px-3 py-2">用户名</th><th class="px-3 py-2">邮箱</th><th class="px-3 py-2">角色</th><th class="px-3 py-2">创建时间</th><th class="px-3 py-2 text-right">角色管理</th></tr></thead><tbody id="admin-users-body"></tbody></table>
     </div>
     <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2"><button onclick="loadAdminUsers()" class="px-3 py-2 text-sm border border-slate-200 rounded-lg">刷新</button><button onclick="closeAdminUsersModal()" class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg">关闭</button></div>
+  </div>
+</div>
+
+<div id="admin-skills-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center">
+  <div class="absolute inset-0 bg-black/50" onclick="closeAdminSkillsModal()"></div>
+  <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-5xl mx-4 overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+      <div><h3 class="text-base font-semibold text-slate-900">Skill 管理</h3><p class="text-xs text-slate-500 mt-1">Skill 放入 skills/ 后重新扫描；停用后下一次对话不再调用</p></div>
+      <button onclick="closeAdminSkillsModal()" class="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400" title="关闭">×</button>
+    </div>
+    <div class="p-5 overflow-x-auto"><div id="admin-skills-status" class="text-xs text-slate-500 mb-2 min-h-4"></div>
+      <table class="w-full text-left text-sm"><thead><tr class="text-xs text-slate-500"><th class="px-3 py-2">名称</th><th class="px-3 py-2">版本</th><th class="px-3 py-2">说明</th><th class="px-3 py-2">状态</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody id="admin-skills-body"></tbody></table>
+    </div>
+    <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2"><button onclick="reloadAdminSkills()" class="px-3 py-2 text-sm border border-slate-200 rounded-lg">重新扫描</button><button onclick="closeAdminSkillsModal()" class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg">关闭</button></div>
   </div>
 </div>
 

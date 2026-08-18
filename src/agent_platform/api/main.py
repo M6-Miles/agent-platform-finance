@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import logging
+import json
 import time
 import threading
 from uuid import uuid4
@@ -32,6 +33,7 @@ from agent_platform.services.application_service import (
     ApplicationService,
     resolve_research_status,
 )
+from agent_platform.core.skill_registry import SkillValidationError
 
 # 导入子路由
 from agent_platform.api.comparison import router as comparison_router
@@ -74,6 +76,14 @@ class BackupRequest(BaseModel):
 
 class RetentionRequest(BaseModel):
     retention_days: int = Field(default=90, ge=7, le=3650)
+
+
+class SkillRunRequest(BaseModel):
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillEnabledRequest(BaseModel):
+    enabled: bool
 
 
 class SecurityAnalysisResponse(BaseModel):
@@ -757,6 +767,110 @@ def update_user_role(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _public_user(user)
+
+
+def _skill_registry_for(request: Request):
+    from agent_platform.core.skill_registry import get_user_skill_registry
+    settings = get_application_service().settings
+    user_id = getattr(_principal(request), "user_id", None) or "anonymous"
+    return get_user_skill_registry(settings.user_skills_dir, user_id)
+
+
+def _skill_marketplace():
+    from agent_platform.core.skill_marketplace import SkillMarketplace
+    settings = get_application_service().settings
+    return SkillMarketplace(
+        settings.skill_catalog_path, settings.user_skills_dir,
+        settings.skill_registry_urls, settings.skill_github_sources,
+    )
+
+
+@app.get("/skills")
+def list_skills(request: Request) -> dict[str, Any]:
+    """列出当前用户自己的 Skill；不返回密钥、源码或本地绝对路径。"""
+    records = []
+    for record in _skill_registry_for(request).list():
+        item = record.to_dict()
+        item.pop("path", None)
+        records.append(item)
+    return {"skills": records, "total": len(records)}
+
+
+@app.post("/my/skills/reload")
+def reload_skills(request: Request) -> dict[str, Any]:
+    """重新扫描当前用户的私有 Skill 目录。"""
+    records = _skill_registry_for(request).discover()
+    return {"skills": [dict(record.to_dict(), path=None) for record in records], "total": len(records)}
+
+
+@app.patch("/my/skills/{skill_name}")
+def set_skill_enabled(
+    skill_name: str, payload: SkillEnabledRequest, request: Request,
+) -> dict[str, Any]:
+    try:
+        record = _skill_registry_for(request).set_enabled(skill_name, payload.enabled)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    result = record.to_dict()
+    result.pop("path", None)
+    return result
+
+
+@app.post("/skills/{skill_name}/run")
+def run_skill(
+    skill_name: str, payload: SkillRunRequest, request: Request,
+) -> dict[str, Any]:
+    """当前用户直接测试自己的已启用 Skill。"""
+    try:
+        result = _skill_registry_for(request).execute(skill_name, payload.arguments)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("skill execution failed: %s", skill_name)
+        raise HTTPException(status_code=422, detail=f"Skill 执行失败：{exc}") from exc
+    return {"skill": skill_name, "result": result}
+
+
+@app.get("/skill-marketplace")
+def list_skill_marketplace(request: Request, q: str = Query(default="", max_length=100)) -> dict[str, Any]:
+    """所有已登录用户可搜索受信任 Skill 目录，结果标记当前用户安装状态。"""
+    marketplace = _skill_marketplace()
+    try:
+        items = marketplace.user_items(
+            getattr(_principal(request), "user_id", None) or "anonymous"
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail=f"Skill 市场不可用：{exc}") from exc
+    query = q.strip().lower()
+    if query:
+        items = [item for item in items if query in " ".join(
+            str(item.get(key, "")) for key in ("id", "name", "description", "author")
+        ).lower()]
+    return {"skills": items, "total": len(items), "remote_errors": marketplace.remote_errors}
+
+
+@app.post("/skill-marketplace/{item_id}/install")
+def install_marketplace_skill(item_id: str, request: Request) -> dict[str, Any]:
+    """将目录中通过 SHA256 校验的 Skill 安装到当前用户私有目录。"""
+    try:
+        return _skill_marketplace().install(
+            item_id, getattr(_principal(request), "user_id", None) or "anonymous"
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (OSError, ValueError, SkillValidationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/my/skills/{skill_name}")
+def delete_my_skill(skill_name: str, request: Request) -> dict[str, Any]:
+    try:
+        _skill_marketplace().delete(
+            skill_name, getattr(_principal(request), "user_id", None) or "anonymous"
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"deleted": True, "name": skill_name}
 
 
 @app.post("/auth/login", response_model=AuthResponse)

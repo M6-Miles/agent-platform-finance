@@ -38,6 +38,10 @@ class ToolRegistry:
             for tool in self._tools.values()
         ]
 
+    def names(self) -> frozenset[str]:
+        """返回已注册工具名，供插件注册器避免依赖内部字典。"""
+        return frozenset(self._tools)
+
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
         tool = self._tools.get(name)
         if tool is None:

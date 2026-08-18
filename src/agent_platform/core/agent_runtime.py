@@ -22,12 +22,14 @@ class AgentRuntime:
         provider: LLMProvider,
         tools: ToolRegistry,
         max_steps: int = 4,
+        instruction_context: str = "",
     ) -> None:
         if max_steps < 1:
             raise ValueError("max_steps 必须大于 0")
         self.provider = provider
         self.tools = tools
         self.max_steps = max_steps
+        self.instruction_context = instruction_context.strip()
 
     def run(
         self,
@@ -38,6 +40,8 @@ class AgentRuntime:
             raise ValueError("问题不能为空")
 
         messages = list(history)
+        if self.instruction_context:
+            messages.insert(0, ChatMessage(role="system", content=self.instruction_context))
         messages.append(ChatMessage(role="user", content=user_message.strip()))
         steps: list[ToolExecutionResult] = []
         input_tokens = 0

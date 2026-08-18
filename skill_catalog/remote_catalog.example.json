@@ -1,0 +1,12 @@
+[
+  {
+    "id": "weather_helper",
+    "name": "weather_helper",
+    "version": "1.0.0",
+    "description": "根据天气数据生成出行建议",
+    "permissions": [],
+    "download_url": "https://your-approved-domain.example/skills/weather_helper-1.0.0.zip",
+    "sha256": "下载压缩包的SHA256-64位小写值",
+    "author": "你的团队"
+  }
+]

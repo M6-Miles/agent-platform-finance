@@ -30,6 +30,12 @@ class Settings:
     market_data_provider: str = "sample"
     sample_prices_csv: Path = DEFAULT_SAMPLE_PRICES_CSV
     sqlite_path: Path = DEFAULT_SQLITE_PATH
+    skills_dir: Path = PROJECT_ROOT / "skills"
+    skill_state_path: Path = PROJECT_ROOT / "data" / "skill_state.json"
+    skill_catalog_path: Path = PROJECT_ROOT / "skill_catalog" / "catalog.json"
+    user_skills_dir: Path = PROJECT_ROOT / "data" / "user_skills"
+    skill_registry_urls: tuple[str, ...] = ()
+    skill_github_sources: tuple[str, ...] = ()
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
     deepseek_api_key: str = ""
@@ -72,6 +78,25 @@ def get_settings() -> Settings:
         ),
         sqlite_path=_resolve_project_path(
             os.getenv("SQLITE_PATH", str(DEFAULT_SQLITE_PATH))
+        ),
+        skills_dir=_resolve_project_path(os.getenv("SKILLS_DIR", str(PROJECT_ROOT / "skills"))),
+        skill_state_path=_resolve_project_path(
+            os.getenv("SKILL_STATE_PATH", str(PROJECT_ROOT / "data" / "skill_state.json"))
+        ),
+        skill_catalog_path=_resolve_project_path(
+            os.getenv("SKILL_CATALOG_PATH", str(PROJECT_ROOT / "skill_catalog" / "catalog.json"))
+        ),
+        user_skills_dir=_resolve_project_path(
+            os.getenv("USER_SKILLS_DIR", str(PROJECT_ROOT / "data" / "user_skills"))
+        ),
+        skill_registry_urls=tuple(
+            item.strip() for item in os.getenv("SKILL_REGISTRY_URLS", "").split(",") if item.strip()
+        ),
+        skill_github_sources=tuple(
+            item.strip() for item in os.getenv(
+                "SKILL_GITHUB_SOURCES",
+                "openai/skills|skills/.curated,anthropics/skills|skills",
+            ).split(",") if item.strip()
         ),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
         anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),

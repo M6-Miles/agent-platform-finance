@@ -65,6 +65,9 @@ Thumbs.db
 data/real/
 data/real_delisted/
 data/checkpoints/
+data/skill_state.json
+data/user_skills/
+skills/*/.pytest_cache/
 
 # 临时 LLM 冒烟报告；正式证据只保留 daily 归档与 latest 索引
 docs/experiments/*_smoke_latest.json

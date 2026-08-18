@@ -1,0 +1,12 @@
+[
+  {
+    "id": "text_summary",
+    "name": "text_summary",
+    "version": "1.0.0",
+    "description": "把一段文本整理成简短的中文摘要。",
+    "permissions": [],
+    "source": "skills/text_summary",
+    "sha256": "872199b5ace31d4167c30d07fcf0120afa21043e2c74de264effd289082cf83e",
+    "author": "项目内置示例"
+  }
+]

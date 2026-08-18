@@ -441,9 +441,9 @@ rm data/app.sqlite3
 交付时不要上传 `.env`、`.env.production`、`.venv/`、SQLite 数据库、日志、缓存、`node_modules/` 或本地压缩包。这些内容已被 `.gitignore` 和 `.dockerignore` 排除。权威文档入口如下：
 
 - 项目运行、功能和验收说明：本 `README.md`。
-- 当前真实完成状态：`PROJECT_STATUS.md`。
+- 当前真实完成状态：`docs/deliverables_report.md`。
 - 原始任务书与验收定义：`SPEC.md` 和 `docs/构建通用Agent平台及证券金融分析应用.docx`。
-- 面向导师的总结和零基础说明：`docs/项目总结文档.docx`、`docs/项目小白说明文档.docx`。
+- 面向导师的总结：`docs/项目总结文档.docx`；Skill 市场说明：`docs/skill_plugins.md`。
 
 仍值得继续扩展的内容包括 PostgreSQL 多实例部署、Redis 分布式限流、集中式密钥管理、更多数据源以及更长时间的真实行情与模型稳定性证据。这些扩展涉及网络、费用和运维复杂度，需要单独评审。
 
@@ -454,6 +454,16 @@ rm data/app.sqlite3
 > 本节面向需要深入了解 Agent 平台架构的读者。
 
 ### 14.1 AgentHarness SDK
+
+### 14.1.1 Skill 插件机制
+
+项目提供面向所有登录用户的可视化 Skill 市场：可以搜索、查看版本/权限/来源/SHA256，并下载安装到当前账号。每个用户拥有独立的 `data/user_skills/<user_id>/`，可单独启用、停用和删除，Agent 只加载当前用户已启用的 Skill，不会影响其他账号。完整说明见 [`docs/skill_plugins.md`](docs/skill_plugins.md)。
+
+内置目录示例为 `skills/text_summary`。市场还默认聚合 OpenAI `openai/skills` curated 目录和 Anthropic `anthropics/skills` 目录。列表通过固定提交的 Git 文件树快速生成；安装时只下载所选 `SKILL.md`，校验 Git 对象完整性并计算 SHA256，再作为当前用户的说明型工作流程注入 Agent；仓库脚本不会被下载或执行。
+
+兼容性边界：纯说明型 Skill 可以直接参与 Agent 对话；依赖本平台已有工具的 Skill 可以使用对应部分；依赖 Figma、Notion、Playwright、GitHub CLI、MCP 或专用脚本的 Skill 只会安全安装说明，必须另行接入对应工具后才能完整运行。市场不会把“下载成功”标记为“所有外部依赖均已满足”。
+
+`SKILL_GITHUB_SOURCES` 配置官方或经过审查的 GitHub 说明型目录；`SKILL_REGISTRY_URLS` 用于聚合自建 HTTPS 可执行插件目录。后者按压缩包 SHA256 校验后安装，目录协议示例见 `skill_catalog/remote_catalog.example.json`。
 
 `src/agent_platform/core/harness.py` 实现了完整的 Harness 免疫系统，包含 5 个内置 Guardrail：
 

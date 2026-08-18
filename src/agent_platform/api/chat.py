@@ -102,7 +102,9 @@ def chat_with_agent(req: ChatRequest, request: Request) -> ChatResponse:
     started_at = time.perf_counter()
     try:
         result = service.chat(
-            req.message, req.session_id, data_mode=mode
+            req.message, req.session_id, data_mode=mode,
+            user_id=getattr(request.state, "principal", None).user_id
+            if getattr(request.state, "principal", None) else "anonymous",
         )
     except ValueError as exc:
         service.observability.record_call(

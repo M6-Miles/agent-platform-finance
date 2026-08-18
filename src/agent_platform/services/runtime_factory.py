@@ -8,6 +8,7 @@ from agent_platform.config import Settings, get_settings
 from agent_platform.core.agent_runtime import AgentRuntime
 from agent_platform.core.mock_llm_provider import MockLLMProvider
 from agent_platform.core.tools import RegisteredTool, ToolRegistry
+from agent_platform.core.skill_registry import get_user_skill_registry
 
 
 AnalysisToolHandler = Callable[..., str]
@@ -30,6 +31,7 @@ def _reload_deepseek() -> type:
 def build_runtime(
     analysis_handler: AnalysisToolHandler,
     settings: Settings | None = None,
+    user_id: str = "anonymous",
 ) -> AgentRuntime:
     """创建 AgentRuntime，根据 Settings.llm_provider 选择 LLM。"""
     current_settings = settings or get_settings()
@@ -74,4 +76,8 @@ def build_runtime(
             handler=analysis_handler,
         )
     )
-    return AgentRuntime(provider=provider, tools=registry)
+    # 动态 Skill 在此统一接入，新增插件无需修改 AgentRuntime 或 Provider。
+    skill_registry = get_user_skill_registry(current_settings.user_skills_dir, user_id)
+    skill_registry.register_tools(registry, agent_name="chat_agent")
+    skill_context = skill_registry.instruction_context(agent_name="chat_agent")
+    return AgentRuntime(provider=provider, tools=registry, instruction_context=skill_context)

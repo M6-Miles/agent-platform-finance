@@ -1,0 +1,8 @@
+{
+  "name": "text_summary",
+  "version": "1.0.0",
+  "description": "把一段文本整理成简短的中文摘要。",
+  "entrypoint": "handler:run",
+  "permissions": [],
+  "allowed_agents": ["chat_agent"]
+}
